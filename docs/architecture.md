@@ -37,6 +37,7 @@ flowchart LR
    - stores plugin state and credentials locally
 2. **Configured GitHub repository**
    - receives synchronized note and attachment data
+   - can receive synced content at repository root or under a configured subfolder (for example `vault/`)
    - becomes the remote source of sync truth for the configured branch
 3. **Repository automation**
    - builds, tests, and packages the plugin code

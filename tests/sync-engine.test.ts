@@ -10,6 +10,8 @@ const makeConfig = (): SyncConfig => ({
   repo: "r",
   branch: "main",
   rootPath: "",
+  repoScopeMode: "fullRepo",
+  repoSubfolder: "vault",
   ignorePatterns: [],
   conflictPolicy: "preferLocal",
 });
@@ -269,5 +271,66 @@ describe("DefaultSyncEngine", () => {
     );
     expect(hasConflictCopy).toBe(true);
     vi.useRealTimers();
+  });
+
+  it("writes remote changes under configured repository subfolder", async () => {
+    const vault = new FakeVault();
+    await vault.createBinary("note.md", new Uint8Array([1]));
+    const app = new FakeApp(vault);
+
+    const stateStore = {
+      loadBaseline: vi.fn().mockResolvedValue(null),
+      saveBaseline: vi.fn(),
+      saveConflicts: vi.fn(),
+      appendLog: vi.fn(),
+    };
+
+    const localIndexer = {
+      scan: vi.fn().mockResolvedValue({ "note.md": { path: "note.md", hash: "h1", mtime: 1, size: 1 } }),
+      setPreviousBaseline: vi.fn(),
+      setMaxFileSizeMB: vi.fn(),
+    };
+
+    const remoteIndexer = {
+      fetchIndex: vi.fn().mockResolvedValue({}),
+    };
+
+    const planner = {
+      plan: vi.fn().mockReturnValue({
+        ops: [{ type: "push_new", path: "note.md" }],
+        conflicts: [],
+      }),
+    };
+
+    const resolver = new DefaultConflictResolver();
+
+    const gitClient = {
+      getCommitInfo: vi.fn().mockResolvedValue({ sha: "head", date: "" }),
+      getCommitTreeSha: vi.fn().mockResolvedValue("tree"),
+      createBlob: vi.fn().mockResolvedValue("blob"),
+      createTree: vi.fn().mockResolvedValue("tree-new"),
+      createCommit: vi.fn().mockResolvedValue("commit-new"),
+      updateRef: vi.fn().mockResolvedValue(undefined),
+      getFile: vi.fn(),
+    };
+
+    const engine = new DefaultSyncEngine(
+      app as any,
+      gitClient as any,
+      localIndexer as any,
+      remoteIndexer as any,
+      planner as any,
+      resolver as any,
+      stateStore as any
+    );
+
+    await engine.sync({
+      ...makeConfig(),
+      repoScopeMode: "subfolder",
+      repoSubfolder: "vault",
+    });
+
+    const entries = gitClient.createTree.mock.calls[0][0].entries;
+    expect(entries[0].path).toBe("vault/note.md");
   });
 });

@@ -1,5 +1,4 @@
 import { normalizePath, TFile, type App } from "obsidian";
-import picomatch from "picomatch";
 import type { LocalIndex, SyncBaseline } from "../types/sync-types";
 import type { LocalIndexer } from "../types/interfaces";
 
@@ -38,9 +37,6 @@ export class LocalVaultIndexer implements LocalIndexer {
       // Check file size
       if (file.stat.size > this.maxFileSizeBytes) {
         skippedFiles.push(file.path);
-        console.warn(
-          `Skipping large file: ${file.path} (${(file.stat.size / 1024 / 1024).toFixed(2)}MB exceeds ${(this.maxFileSizeBytes / 1024 / 1024).toFixed(0)}MB limit)`
-        );
         continue;
       }
 
@@ -54,7 +50,9 @@ export class LocalVaultIndexer implements LocalIndexer {
     }
 
     if (skippedFiles.length > 0) {
-      console.warn(`Skipped ${skippedFiles.length} large file(s):`, skippedFiles);
+      console.warn(
+        `Skipped ${skippedFiles.length} large file(s) exceeding ${(this.maxFileSizeBytes / 1024 / 1024).toFixed(0)}MB.`
+      );
     }
 
     return index;
@@ -101,7 +99,7 @@ export class LocalVaultIndexer implements LocalIndexer {
 
     const normalized = normalizePath(path);
 
-    // Use picomatch for robust glob pattern matching
+    // Use internal glob matching for robust ignore pattern support
     for (const pattern of ignorePatterns) {
       const trimmed = pattern.trim();
       if (!trimmed) {
@@ -115,18 +113,26 @@ export class LocalVaultIndexer implements LocalIndexer {
           return true;
         }
       } else {
-        // Use picomatch for advanced glob matching
-        const isMatch = picomatch(normalizePath(trimmed), {
-          dot: true, // Match dotfiles
-          noglobstar: false, // Enable ** for recursive matching
-        });
-
-        if (isMatch(normalized)) {
+        if (this.matchesGlob(normalized, normalizePath(trimmed))) {
           return true;
         }
       }
     }
 
     return false;
+  }
+
+  private matchesGlob(path: string, pattern: string): boolean {
+    const regex = this.globToRegExp(pattern);
+    return regex.test(path);
+  }
+
+  private globToRegExp(pattern: string): RegExp {
+    const escaped = pattern.replace(/[.+^${}()|[\]\\]/g, "\\$&");
+    const withGlobstar = escaped.replace(/\*\*/g, "__GLOBSTAR__");
+    const withStar = withGlobstar.replace(/\*/g, "[^/]*");
+    const withQuestion = withStar.replace(/\?/g, "[^/]");
+    const source = withQuestion.replace(/__GLOBSTAR__/g, ".*");
+    return new RegExp(`^${source}$`);
   }
 }

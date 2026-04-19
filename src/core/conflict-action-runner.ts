@@ -35,11 +35,11 @@ export class ConflictActionRunner {
 
   private async applyPreferLocal(record: ConflictRecord, config: SyncConfig): Promise<void> {
     if (record.reason === "delete-modify-local" || record.reason === "local-missing-remote") {
-      await this.deleteRemote(record.path, config.branch);
+      await this.deleteRemote(record.path, config);
       return;
     }
 
-    await this.pushLocal(record.path, config.branch);
+    await this.pushLocal(record.path, config);
   }
 
   private async applyPreferRemote(record: ConflictRecord, config: SyncConfig): Promise<void> {
@@ -48,22 +48,22 @@ export class ConflictActionRunner {
       return;
     }
 
-    await this.pullRemote(record.path, config.branch);
+    await this.pullRemote(record.path, config);
   }
 
   private async applyKeepBoth(record: ConflictRecord, config: SyncConfig): Promise<void> {
     if (record.reason === "local-missing-remote") {
-      await this.pullRemote(record.path, config.branch);
+      await this.pullRemote(record.path, config);
       return;
     }
     const conflictPath = this.nextConflictPath(record.path, "conflict-manual");
     if (record.reason === "modify-modify") {
-      await this.pullRemoteCopy(record.path, conflictPath, config.branch);
+      await this.pullRemoteCopy(record.path, conflictPath, config);
       return;
     }
 
     if (record.reason === "delete-modify-local") {
-      await this.pullRemoteCopy(record.path, conflictPath, config.branch);
+      await this.pullRemoteCopy(record.path, conflictPath, config);
       return;
     }
 
@@ -72,9 +72,12 @@ export class ConflictActionRunner {
     }
   }
 
-  private async pullRemote(path: string, branch: string): Promise<void> {
+  private async pullRemote(path: string, config: SyncConfig): Promise<void> {
     const normalized = normalizePath(path);
-    const { content } = await this.client.getFile(normalized, branch);
+    const { content } = await this.client.getFile(
+      this.toRemotePath(normalized, config),
+      config.branch
+    );
     const buffer = Buffer.from(content, "base64");
     await this.ensureParentFolder(normalized);
     const existing = this.app.vault.getAbstractFileByPath(normalized);
@@ -86,15 +89,18 @@ export class ConflictActionRunner {
     await this.app.vault.createBinary(normalized, toArrayBuffer(buffer));
   }
 
-  private async pullRemoteCopy(path: string, targetPath: string, branch: string): Promise<void> {
+  private async pullRemoteCopy(path: string, targetPath: string, config: SyncConfig): Promise<void> {
     const normalized = normalizePath(path);
-    const { content } = await this.client.getFile(normalized, branch);
+    const { content } = await this.client.getFile(
+      this.toRemotePath(normalized, config),
+      config.branch
+    );
     const buffer = Buffer.from(content, "base64");
     await this.ensureParentFolder(targetPath);
     await this.app.vault.createBinary(targetPath, toArrayBuffer(buffer));
   }
 
-  private async pushLocal(path: string, branch: string): Promise<void> {
+  private async pushLocal(path: string, config: SyncConfig): Promise<void> {
     const normalized = normalizePath(path);
     const abstractFile = this.app.vault.getAbstractFileByPath(normalized);
     if (!abstractFile || !(abstractFile instanceof TFile)) {
@@ -103,15 +109,22 @@ export class ConflictActionRunner {
 
     const data = await this.app.vault.readBinary(abstractFile);
     const contentBase64 = Buffer.from(data).toString("base64");
+    const remotePath = this.toRemotePath(normalized, config);
     let sha: string | undefined;
     try {
-      const remote = await this.client.getFile(normalized, branch);
+      const remote = await this.client.getFile(remotePath, config.branch);
       sha = remote.sha;
     } catch {
       sha = undefined;
     }
 
-    await this.client.putFile(normalized, contentBase64, `conflict: keep local ${path}`, sha, branch);
+    await this.client.putFile(
+      remotePath,
+      contentBase64,
+      `conflict: keep local ${path}`,
+      sha,
+      config.branch
+    );
   }
 
   private async deleteLocal(path: string): Promise<void> {
@@ -124,10 +137,11 @@ export class ConflictActionRunner {
     await this.app.fileManager.trashFile(abstractFile);
   }
 
-  private async deleteRemote(path: string, branch: string): Promise<void> {
+  private async deleteRemote(path: string, config: SyncConfig): Promise<void> {
+    const remotePath = this.toRemotePath(path, config);
     let sha: string | undefined;
     try {
-      const remote = await this.client.getFile(path, branch);
+      const remote = await this.client.getFile(remotePath, config.branch);
       sha = remote.sha;
     } catch {
       sha = undefined;
@@ -137,7 +151,7 @@ export class ConflictActionRunner {
       return;
     }
 
-    await this.client.deleteFile(path, `conflict: delete ${path}`, sha, branch);
+    await this.client.deleteFile(remotePath, `conflict: delete ${path}`, sha, config.branch);
   }
 
   private async copyLocal(sourcePath: string, targetPath: string): Promise<void> {
@@ -197,5 +211,15 @@ export class ConflictActionRunner {
     const hours = String(date.getHours()).padStart(2, "0");
     const minutes = String(date.getMinutes()).padStart(2, "0");
     return `${year}${month}${day}-${hours}${minutes}`;
+  }
+
+  private toRemotePath(localPath: string, config: SyncConfig): string {
+    const normalizedPath = normalizePath(localPath);
+    if (config.repoScopeMode !== "subfolder") {
+      return normalizedPath;
+    }
+    const trimmedSubfolder = config.repoSubfolder.trim().replace(/^\/+|\/+$/g, "");
+    const subfolder = trimmedSubfolder.length > 0 ? trimmedSubfolder : "vault";
+    return `${subfolder}/${normalizedPath}`;
   }
 }

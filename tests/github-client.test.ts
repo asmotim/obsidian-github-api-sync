@@ -79,6 +79,17 @@ describe("GitHubApiClient", () => {
     vi.useRealTimers();
   });
 
+  it("does not retry on non-rate-limit 403", async () => {
+    const { requestUrl } = await import("obsidian");
+    const requestUrlMock = vi.mocked(requestUrl);
+
+    requestUrlMock.mockResolvedValue(makeResponse({ status: 403, text: "forbidden" }));
+
+    const client = new GitHubApiClient("t", "o", "r");
+    await expect(client.getCommitSha("main")).rejects.toThrow("403");
+    expect(requestUrlMock).toHaveBeenCalledTimes(1);
+  });
+
   it("does not retry on 401", async () => {
     const { requestUrl } = await import("obsidian");
     const requestUrlMock = vi.mocked(requestUrl);

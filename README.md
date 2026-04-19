@@ -11,6 +11,7 @@ This repository is currently a governance and hardening fork of the upstream `Fr
 - syncs vault content against a GitHub repository through the GitHub REST API
 - preserves folder structure and common file operations
 - supports conflict handling and sync logs
+- supports syncing either to repository root or to a dedicated remote subfolder (for example `vault/`)
 - is intended for Obsidian desktop and mobile because `manifest.json` sets `isDesktopOnly` to `false`
 
 ## Security and privacy disclosures
@@ -25,11 +26,11 @@ Yes. You need a GitHub account, a repository, and a token with repository access
 
 ### Data leaves your device
 
-Yes. Any files and metadata selected for sync are sent to the configured GitHub repository. That can include note contents, attachment bytes, file paths, and commit metadata.
+Yes. Any files and metadata selected for sync are sent to the configured GitHub repository. That can include note contents, attachment bytes, file paths, and commit metadata. If repository scope is set to `Subfolder only`, synced content is constrained to that remote subfolder (for example `vault/`).
 
 ### Secrets
 
-The current fork assumes GitHub credentials are stored locally in plugin data/settings. Do **not** sync `.obsidian/` or plugin settings into a public repository unless token handling is redesigned and documented.
+By default, the token is session-only and is **not** persisted on disk unless you explicitly enable **Persist token on disk** in settings. Do **not** sync `.obsidian/` or plugin settings into a public repository if token persistence is enabled.
 
 ### Telemetry
 
@@ -60,6 +61,24 @@ Fallback for classic tokens:
 - `docs/` — architecture, security, testing, release, and ADRs
 - `.github/` — CI, security, templates, and maintenance workflows
 
+## Repository scope modes
+
+- **Full repository**: plugin paths map directly to repository root.
+- **Subfolder only**: plugin paths map into a configured repository subfolder (default: `vault`).
+
+This mode is useful for monorepo layouts such as:
+
+```text
+second-brain/
+├─ docs/
+├─ policies/
+└─ vault/
+   ├─ 00 Inbox/
+   └─ ...
+```
+
+In that setup, configure **Repository scope = Subfolder only** and **Repository subfolder = vault** so Obsidian-sync content stays inside `vault/`.
+
 ## Development
 
 ```bash
@@ -73,6 +92,14 @@ npm run release:preflight
 ```
 
 Build artifacts land in `dist/`.
+
+## Test without catalog submission
+
+Yes — you can test this fork locally without submitting to the Obsidian community catalog:
+
+1. run `npm ci` and `npm run build`
+2. copy `dist/main.js`, `dist/manifest.json`, and optional `dist/styles.css` into a local Obsidian plugin folder
+3. enable the plugin in Obsidian (Settings → Community Plugins)
 
 ## Release process
 

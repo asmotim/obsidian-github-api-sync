@@ -17,6 +17,7 @@ The plugin runs inside Obsidian and can read the vault paths it is pointed at. L
 ### Remote side
 
 The configured GitHub repository and branch act as the remote sync target. Data sent there is outside the local-only trust boundary.
+When repository scope is set to a subfolder, only that configured remote subtree is used for plugin sync data.
 
 ### CI/CD side
 
@@ -39,6 +40,7 @@ Operational rules:
 
 - one token per user or device where practical
 - rotate on exposure or device loss
+- default to session-only token handling (do not persist token unless explicitly enabled by the user)
 - do not print tokens in logs
 - do not embed tokens in fixtures, screenshots, or issue reports
 

@@ -28,6 +28,8 @@ describe("ConflictActionRunner", () => {
       repo: "r",
       branch: "main",
       rootPath: "",
+      repoScopeMode: "fullRepo",
+      repoSubfolder: "vault",
       ignorePatterns: [],
       conflictPolicy: "manual",
     });
@@ -51,6 +53,8 @@ describe("ConflictActionRunner", () => {
       repo: "r",
       branch: "main",
       rootPath: "",
+      repoScopeMode: "fullRepo",
+      repoSubfolder: "vault",
       ignorePatterns: [],
       conflictPolicy: "manual",
     });
@@ -75,6 +79,8 @@ describe("ConflictActionRunner", () => {
       repo: "r",
       branch: "main",
       rootPath: "",
+      repoScopeMode: "fullRepo",
+      repoSubfolder: "vault",
       ignorePatterns: [],
       conflictPolicy: "manual",
     });
@@ -99,6 +105,8 @@ describe("ConflictActionRunner", () => {
       repo: "r",
       branch: "main",
       rootPath: "",
+      repoScopeMode: "fullRepo",
+      repoSubfolder: "vault",
       ignorePatterns: [],
       conflictPolicy: "manual",
     });
@@ -122,6 +130,8 @@ describe("ConflictActionRunner", () => {
       repo: "r",
       branch: "main",
       rootPath: "",
+      repoScopeMode: "fullRepo",
+      repoSubfolder: "vault",
       ignorePatterns: [],
       conflictPolicy: "manual",
     });
@@ -148,6 +158,8 @@ describe("ConflictActionRunner", () => {
       repo: "r",
       branch: "main",
       rootPath: "",
+      repoScopeMode: "fullRepo",
+      repoSubfolder: "vault",
       ignorePatterns: [],
       conflictPolicy: "manual",
     });
@@ -186,6 +198,8 @@ describe("ConflictActionRunner", () => {
       repo: "r",
       branch: "main",
       rootPath: "",
+      repoScopeMode: "fullRepo",
+      repoSubfolder: "vault",
       ignorePatterns: [],
       conflictPolicy: "manual",
     });
@@ -196,5 +210,37 @@ describe("ConflictActionRunner", () => {
     );
     expect(hasIncremented).toBe(true);
     vi.useRealTimers();
+  });
+
+  it("uses repository subfolder path when resolving remote actions", async () => {
+    const vault = new FakeVault();
+    await vault.createBinary("note.md", new Uint8Array([1]));
+    const app = new FakeApp(vault);
+    const client = {
+      getFile: vi.fn().mockResolvedValue({ content: "Zg==", sha: "s" }),
+      putFile: vi.fn(),
+      deleteFile: vi.fn(),
+    };
+
+    const runner = new ConflictActionRunner(app as any, client as any);
+    await runner.resolve(makeRecord("modify-modify"), "keepLocal", {
+      token: "t",
+      owner: "o",
+      repo: "r",
+      branch: "main",
+      rootPath: "",
+      repoScopeMode: "subfolder",
+      repoSubfolder: "vault",
+      ignorePatterns: [],
+      conflictPolicy: "manual",
+    });
+
+    expect(client.putFile).toHaveBeenCalledWith(
+      "vault/note.md",
+      expect.any(String),
+      expect.any(String),
+      "s",
+      "main"
+    );
   });
 });

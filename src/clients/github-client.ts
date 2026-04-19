@@ -250,7 +250,7 @@ export class GitHubApiClient implements GitHubClient {
         };
       }
 
-      const shouldRetry = this.shouldRetry(response.status, attempt);
+      const shouldRetry = this.shouldRetry(response.status, response.headers, attempt);
       if (response.status === 409) {
         throw new Error(`GitHub API conflict (409): ${response.text}`);
       }
@@ -262,7 +262,7 @@ export class GitHubApiClient implements GitHubClient {
         throw new Error(`GitHub API error ${response.status}: ${response.text}`);
       }
 
-      const delayMs = this.getRetryDelayMs(response.status, attempt);
+      const delayMs = this.getRetryDelayMs(response.status, response.headers, attempt);
       await this.sleep(delayMs);
       attempt += 1;
     }
@@ -287,7 +287,7 @@ export class GitHubApiClient implements GitHubClient {
       .join("/");
   }
 
-  private shouldRetry(status: number, attempt: number): boolean {
+  private shouldRetry(status: number, headers: Record<string, string>, attempt: number): boolean {
     if (attempt >= this.maxRetries) {
       return false;
     }
@@ -301,14 +301,40 @@ export class GitHubApiClient implements GitHubClient {
     }
 
     if (status === 403) {
-      // Rate limit - will be handled by retry-after
-      return true;
+      const remaining = this.getHeader(headers, "x-ratelimit-remaining");
+      const retryAfter = this.getHeader(headers, "retry-after");
+      return remaining === "0" || Boolean(retryAfter);
     }
 
     return false;
   }
 
-  private getRetryDelayMs(status: number, attempt: number): number {
+  private getRetryDelayMs(
+    status: number,
+    headers: Record<string, string>,
+    attempt: number
+  ): number {
+    const retryAfter = this.getHeader(headers, "retry-after");
+    if (retryAfter) {
+      const retryAfterSeconds = Number(retryAfter);
+      if (Number.isFinite(retryAfterSeconds) && retryAfterSeconds >= 0) {
+        return Math.min(retryAfterSeconds * 1000, 30_000);
+      }
+    }
+
+    if (status === 403) {
+      const resetRaw = this.getHeader(headers, "x-ratelimit-reset");
+      if (resetRaw) {
+        const resetSeconds = Number(resetRaw);
+        if (Number.isFinite(resetSeconds)) {
+          const untilResetMs = Math.max(0, resetSeconds * 1000 - Date.now());
+          if (untilResetMs > 0) {
+            return Math.min(untilResetMs, 30_000);
+          }
+        }
+      }
+    }
+
     const base = 500 * Math.pow(2, attempt);
     return Math.min(base, 5000);
   }
@@ -320,5 +346,15 @@ export class GitHubApiClient implements GitHubClient {
   private isEmptyRepoError(error: unknown): boolean {
     const message = error instanceof Error ? error.message : String(error);
     return message.includes("Git Repository is empty");
+  }
+
+  private getHeader(headers: Record<string, string>, key: string): string | undefined {
+    const lowerKey = key.toLowerCase();
+    for (const [headerKey, value] of Object.entries(headers)) {
+      if (headerKey.toLowerCase() === lowerKey) {
+        return value;
+      }
+    }
+    return undefined;
   }
 }

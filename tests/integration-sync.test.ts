@@ -127,6 +127,8 @@ const makeConfig = (): SyncConfig => ({
   repo: "r",
   branch: "main",
   rootPath: "",
+  repoScopeMode: "fullRepo",
+  repoSubfolder: "vault",
   ignorePatterns: [],
   conflictPolicy: "preferLocal",
 });

@@ -1,6 +1,6 @@
 import { Notice, Plugin, TFolder } from "obsidian";
 import type { PluginSettings } from "./types/plugin-settings";
-import { DEFAULT_SETTINGS } from "./types/plugin-settings";
+import { DEFAULT_SETTINGS, sanitizeSettingsForPersistence } from "./types/plugin-settings";
 import { SettingsView } from "./ui/settings-view";
 import { DefaultSyncEngine } from "./core/sync-engine";
 import { DefaultSyncPlanner } from "./core/sync-planner";
@@ -72,11 +72,12 @@ export default class GitHubApiSyncPlugin extends Plugin {
   async saveSettings(): Promise<void> {
     // Preserve existing state (baseline, conflicts, logs) when saving settings
     const existing = await this.loadData();
+    const persistedSettings = sanitizeSettingsForPersistence(this.settings);
     await this.saveData({
       baseline: existing?.baseline ?? null,
       conflicts: existing?.conflicts ?? [],
       logs: existing?.logs ?? [],
-      ...this.settings,
+      ...persistedSettings,
     });
     this.scheduleSync();
   }
@@ -95,7 +96,7 @@ export default class GitHubApiSyncPlugin extends Plugin {
     record: ConflictRecord,
     action: "keepLocal" | "keepRemote" | "keepBoth"
   ): Promise<void> {
-    const { token, owner, repo, ignorePatterns } = this.settings;
+    const { token, owner, repo, ignorePatterns, repoScopeMode, repoSubfolder } = this.settings;
     const branch = this.settings.branch.trim() || "main";
     if (!token || !owner || !repo) {
       new Notice("Missing GitHub settings (token/owner/repo).");
@@ -119,6 +120,8 @@ export default class GitHubApiSyncPlugin extends Plugin {
         repo,
         branch,
         rootPath: this.settings.rootPath,
+        repoScopeMode,
+        repoSubfolder,
         ignorePatterns: effectiveIgnorePatterns,
         conflictPolicy: this.settings.conflictPolicy,
         syncIntervalMinutes: this.settings.syncIntervalMinutes ?? undefined,
@@ -171,7 +174,16 @@ export default class GitHubApiSyncPlugin extends Plugin {
     }
 
     try {
-      const { token, owner, repo, rootPath, ignorePatterns, conflictPolicy } = this.settings;
+      const {
+        token,
+        owner,
+        repo,
+        rootPath,
+        repoScopeMode,
+        repoSubfolder,
+        ignorePatterns,
+        conflictPolicy,
+      } = this.settings;
       const branch = this.settings.branch.trim() || "main";
       if (!token || !owner || !repo) {
         new Notice("Missing GitHub settings (token/owner/repo).");
@@ -221,6 +233,8 @@ export default class GitHubApiSyncPlugin extends Plugin {
           repo,
           branch,
           rootPath,
+          repoScopeMode,
+          repoSubfolder,
           ignorePatterns: effectiveIgnorePatterns,
           conflictPolicy,
           syncIntervalMinutes: this.settings.syncIntervalMinutes ?? undefined,
