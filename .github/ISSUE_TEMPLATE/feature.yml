@@ -1,0 +1,35 @@
+name: Feature proposal
+description: Propose a bounded feature or improvement.
+title: "feat: "
+labels:
+  - enhancement
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem statement
+      placeholder: What problem are you trying to solve?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed change
+      placeholder: Describe the desired behavior.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Existing alternatives / build-vs-integrate notes
+      placeholder: What platform or GitHub capability did you consider instead?
+  - type: checkboxes
+    id: impact
+    attributes:
+      label: Likely impact
+      options:
+        - label: touches auth or token handling
+        - label: touches conflict semantics
+        - label: touches release or packaging policy
+        - label: touches mobile/runtime compatibility
+        - label: likely needs an ADR

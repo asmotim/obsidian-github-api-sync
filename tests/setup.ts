@@ -21,9 +21,12 @@ vi.mock("obsidian", () => {
   };
 });
 
-globalThis.window = {
+Object.defineProperty(globalThis, "window", {
+  value: {
   setTimeout: (handler: (...args: any[]) => void, timeout?: number, ...args: any[]) =>
     setTimeout(handler, timeout, ...args),
   clearTimeout: (handle: number) => clearTimeout(handle),
-} as unknown as Window;
+  } as unknown as Window,
+  writable: true,
+});
 

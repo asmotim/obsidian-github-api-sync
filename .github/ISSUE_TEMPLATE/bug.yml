@@ -1,0 +1,61 @@
+name: Bug report
+description: Report a defect in plugin behavior.
+title: "bug: "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting a bug. Please sanitize logs and never include tokens or private note content.
+  - type: input
+    id: obsidian_version
+    attributes:
+      label: Obsidian version
+      placeholder: e.g. 1.8.10
+    validations:
+      required: true
+  - type: input
+    id: plugin_version
+    attributes:
+      label: Plugin version / commit
+      placeholder: e.g. 1.0.5 or commit SHA
+    validations:
+      required: true
+  - type: dropdown
+    id: platform
+    attributes:
+      label: Platform
+      options:
+        - macOS desktop
+        - Windows desktop
+        - Linux desktop
+        - iOS
+        - Android
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: Clear step-by-step reproduction.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Sanitized logs or screenshots
+      description: Remove tokens, repository names, and private note content as needed.

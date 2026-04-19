@@ -11,6 +11,7 @@ type MockResponse = {
   headers: Record<string, string>;
   json: unknown;
   text: string;
+  arrayBuffer: ArrayBuffer;
 };
 
 const makeResponse = (options: {
@@ -24,6 +25,7 @@ const makeResponse = (options: {
     headers: options.headers ?? {},
     json: options.json ?? {},
     text: options.text ?? "",
+    arrayBuffer: new ArrayBuffer(0),
   };
 };
 
@@ -109,6 +111,10 @@ describe("GitHubApiClient", () => {
 
     expect(requestUrlMock).toHaveBeenCalledTimes(1);
     const callArgs = requestUrlMock.mock.calls[0][0];
+    expect(typeof callArgs).toBe("object");
+    if (typeof callArgs === "string") {
+      throw new Error("Expected RequestUrlParam object");
+    }
     expect(callArgs.url).toContain("folder/a%20b.md");
   });
 });

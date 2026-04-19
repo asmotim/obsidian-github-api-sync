@@ -1,0 +1,14 @@
+# Default owner
+* @asmotim
+
+# Critical governance and release surfaces
+AGENTS.md @asmotim
+README.md @asmotim
+SECURITY.md @asmotim
+CHANGELOG.md @asmotim
+CONTRIBUTING.md @asmotim
+.github/ @asmotim
+scripts/ @asmotim
+src/ @asmotim
+tests/ @asmotim
+docs/ @asmotim

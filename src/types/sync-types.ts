@@ -24,6 +24,7 @@ export type BaselineEntry = {
   hash?: string;
   sha?: string;
   mtime?: number;
+  size?: number;
   lastCommitTime?: number;
 };
 
@@ -72,7 +73,12 @@ export type SyncOp =
 export type ConflictRecord = {
   path: string;
   type: "modify-modify" | "delete-modify";
-  reason: "modify-modify" | "delete-modify-local" | "delete-modify-remote" | "local-missing-remote";
+  reason:
+    | "modify-modify"
+    | "delete-modify-local"
+    | "delete-modify-remote"
+    | "local-missing-remote"
+    | "mass-remote-deletion-safety";
   localVersion?: { hash: string; mtime: number };
   remoteVersion?: { sha: string; lastCommitTime: number };
   policy: SyncConfig["conflictPolicy"];

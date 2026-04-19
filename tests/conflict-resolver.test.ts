@@ -4,7 +4,7 @@ import type { SyncOp } from "../src/types/sync-types";
 
 const resolver = new DefaultConflictResolver();
 
-const conflict = (reason: string): SyncOp => ({
+const conflict = (reason: Extract<SyncOp, { type: "conflict" }>["reason"]): SyncOp => ({
   type: "conflict",
   path: "note.md",
   reason,

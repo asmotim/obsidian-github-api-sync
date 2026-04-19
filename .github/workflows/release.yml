@@ -3,38 +3,70 @@ name: Release Obsidian plugin
 on:
   push:
     tags:
-      - "*"
+      - '*'
+
+permissions:
+  contents: read
 
 jobs:
   build:
     runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Full verification
+        run: npm run ci
+
+      - name: Upload dist artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-dist
+          path: dist/
+          if-no-files-found: error
+
+  create-draft-release:
+    needs: build
+    runs-on: ubuntu-latest
     permissions:
       contents: write
+
     steps:
-      - uses: actions/checkout@v3
+      - name: Checkout
+        uses: actions/checkout@v4
 
-      - name: Use Node.js
-        uses: actions/setup-node@v3
+      - name: Download dist artifact
+        uses: actions/download-artifact@v4
         with:
-          node-version: "18.x"
+          name: release-dist
+          path: dist
 
-      - name: Build plugin
+      - name: Verify tag and assets
         run: |
-          npm install
-          npm run build
+          tag="${GITHUB_REF_NAME}"
+          node scripts/check-version-sync.mjs --expect-version "$tag"
+          node scripts/check-release-assets.mjs --expect-version "$tag"
 
-      - name: Create release
+      - name: Create draft release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          tag="${GITHUB_REF#refs/tags/}"
-
-          files=(dist/main.js dist/manifest.json)
+          tag="${GITHUB_REF_NAME}"
+          assets=(dist/main.js dist/manifest.json)
           if [ -f dist/styles.css ]; then
-            files+=(dist/styles.css)
+            assets+=(dist/styles.css)
           fi
-
-          gh release create "$tag" \
-            --title="$tag" \
+          gh release create "$tag" "${assets[@]}" \
+            --title "$tag" \
             --draft \
-            "${files[@]}"
+            --generate-notes

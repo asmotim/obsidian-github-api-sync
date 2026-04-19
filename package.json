@@ -1,11 +1,16 @@
 {
   "name": "github-api-sync",
-  "version": "1.0.4",
+  "version": "1.0.5",
   "type": "module",
   "scripts": {
-    "build": "node scripts/validate-manifest.mjs && node scripts/build.mjs",
+    "build": "npm run validate && node scripts/build.mjs",
     "dev": "node scripts/build.mjs --watch",
-    "validate": "node scripts/validate-manifest.mjs",
+    "validate": "node scripts/validate-manifest.mjs && node scripts/check-version-sync.mjs",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint \"src/**/*.ts\"",
+    "governance:check": "npm run validate && node scripts/check-readme-disclosures.mjs",
+    "release:preflight": "npm run governance:check && node scripts/check-release-assets.mjs",
+    "ci": "npm run governance:check && npm run typecheck && npm run lint && npm test && npm run build && npm run release:preflight",
     "test": "vitest run",
     "test:watch": "vitest"
   },
