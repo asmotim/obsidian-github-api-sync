@@ -17,6 +17,12 @@ import type {
   SyncPlanner,
 } from "../types/interfaces";
 
+const toArrayBuffer = (bytes: Uint8Array): ArrayBuffer => {
+  const copy = new Uint8Array(bytes.byteLength);
+  copy.set(bytes);
+  return copy.buffer;
+};
+
 export class DefaultSyncEngine implements SyncEngine {
   private app: App;
   private gitClient: GitHubClient;
@@ -112,7 +118,10 @@ export class DefaultSyncEngine implements SyncEngine {
         config.conflictPolicy
       );
 
-      const finalOps = ops.filter((op) => op.type !== "conflict").concat(resolvedOps);
+      const finalOps: SyncOp[] = [
+        ...ops.filter((op): op is Exclude<SyncOp, { type: "conflict" }> => op.type !== "conflict"),
+        ...resolvedOps,
+      ];
 
       await this.stateStore.saveConflicts(conflictRecords);
 
@@ -273,11 +282,11 @@ export class DefaultSyncEngine implements SyncEngine {
     await this.ensureParentFolder(normalized);
     const existing = this.app.vault.getAbstractFileByPath(normalized);
     if (existing && existing instanceof TFile) {
-      await this.app.vault.modifyBinary(existing, buffer);
+      await this.app.vault.modifyBinary(existing, toArrayBuffer(buffer));
       return;
     }
 
-    await this.app.vault.createBinary(normalized, buffer);
+    await this.app.vault.createBinary(normalized, toArrayBuffer(buffer));
   }
 
   private async pullRemoteCopy(path: string, targetPath: string, branch: string): Promise<void> {
@@ -285,7 +294,7 @@ export class DefaultSyncEngine implements SyncEngine {
     const { content } = await this.gitClient.getFile(normalized, branch);
     const buffer = Buffer.from(content, "base64");
     await this.ensureParentFolder(targetPath);
-    await this.app.vault.createBinary(targetPath, buffer);
+    await this.app.vault.createBinary(targetPath, toArrayBuffer(buffer));
   }
 
   private async renameRemoteFile(

@@ -1,64 +1,96 @@
 # GitHub API Sync
 
-A bidirectional Obsidian sync plugin that uses the GitHub API (no local git required). It keeps your journal and vault files in sync across devices while preserving folder structure, attachments, and common file operations.
+A bidirectional Obsidian sync plugin that uses the GitHub API instead of a local Git client.
 
-## Features
-- Two-way sync between local vault and GitHub repo
-- Supports text files, images, and attachments
-- Preserves folder structure and handles renames/moves
-- Batch commit on push for faster large syncs
-- Conflict handling: prefer local/remote, keep both, or manual resolve
-- Safety guard against mass remote deletions
-- Sync log and conflict list views
-- Optional scheduled sync
+## Status
 
-## How It Works
-- Scans your vault, builds a local index (hash/mtime/size)
-- Fetches remote tree (incremental when possible)
-- Plans pull/push/delete/rename operations
-- Executes changes and updates a baseline for next sync
+This repository is currently a governance and hardening fork of the upstream `FreezingGod/obsidian-github-api-sync` codebase. The code and manifest identity still track the upstream plugin for now. Until `docs/decisions/0002-fork-identity-and-release-policy.md` is deliberately resolved, this fork should be treated as a development fork rather than a separate public release channel.
 
-## Installation (Manual)
-1. Build the plugin:
-   ```bash
-   npm run build
-   ```
-2. Copy `dist/main.js`, `dist/manifest.json`, and `dist/styles.css` into:
-   - macOS: `~/Library/Application Support/obsidian/plugins/github-api-sync/`
-3. In Obsidian, enable the plugin under Settings → Community plugins.
+## What the plugin does
 
-## Configuration
-Open the plugin settings and fill in:
-- GitHub Token
-- Owner / Repository / Branch
-- Root Path (optional)
-- Ignore Patterns
-- Conflict Policy
-- Sync Interval (optional)
+- syncs vault content against a GitHub repository through the GitHub REST API
+- preserves folder structure and common file operations
+- supports conflict handling and sync logs
+- is intended for Obsidian desktop and mobile because `manifest.json` sets `isDesktopOnly` to `false`
 
-### Token Permissions
-- Classic PAT: `repo` (private) or `public_repo` (public)
-- Fine-grained PAT: Contents (Read/Write), Metadata (Read)
+## Security and privacy disclosures
 
-## Usage
-- Command palette: **Sync now**
-- Ribbon icon: click to sync
-- View logs: **Show sync log**
-- Resolve conflicts: **Show sync conflicts**
+### Network access
 
-## Notes
-- Large files above the configured size limit are skipped.
-- If a file is missing locally but exists on GitHub, it will be marked as a conflict for manual decision.
+Yes. The plugin talks to the GitHub API when the user configures GitHub credentials and runs or schedules sync.
+
+### Account requirement
+
+Yes. You need a GitHub account, a repository, and a token with repository access.
+
+### Data leaves your device
+
+Yes. Any files and metadata selected for sync are sent to the configured GitHub repository. That can include note contents, attachment bytes, file paths, and commit metadata.
+
+### Secrets
+
+The current fork assumes GitHub credentials are stored locally in plugin data/settings. Do **not** sync `.obsidian/` or plugin settings into a public repository unless token handling is redesigned and documented.
+
+### Telemetry
+
+This fork does not define telemetry or analytics as an allowed feature. If that ever changes, it requires an ADR, explicit opt-in design, and disclosure updates.
+
+### Mobile support
+
+The plugin is intended to run on desktop and mobile. Each release should still be manually smoke-tested on both before it is treated as release-ready.
+
+## Token permissions
+
+Preferred minimum:
+
+- fine-grained personal access token with repository-scoped access only
+- repository contents: read/write
+- repository metadata: read
+
+Fallback for classic tokens:
+
+- `repo` for private repositories
+- `public_repo` for public repositories
+
+## Repository map
+
+- `src/` — plugin runtime code
+- `tests/` — unit and integration tests
+- `scripts/` — build, validation, and governance checks
+- `docs/` — architecture, security, testing, release, and ADRs
+- `.github/` — CI, security, templates, and maintenance workflows
 
 ## Development
-- Run tests:
-  ```bash
-  npm test
-  ```
-- Watch build:
-  ```bash
-  npm run dev
-  ```
 
-## License
-MIT
+```bash
+npm ci
+npm run validate
+npm run typecheck
+npm run lint
+npm test
+npm run build
+npm run release:preflight
+```
+
+Build artifacts land in `dist/`.
+
+## Release process
+
+This fork uses a draft-release workflow on SemVer tags. Release readiness requires version sync, passing CI, release assets, and manual smoke checks. See `docs/release.md` for the full checklist.
+
+## Governance docs
+
+Start here for non-trivial work:
+
+- `AGENTS.md`
+- `docs/architecture.md`
+- `docs/security-model.md`
+- `docs/testing.md`
+- `docs/release.md`
+- `docs/github-repo-settings.md`
+- `docs/decisions/`
+
+## Support
+
+- bugs: use the issue templates under `.github/ISSUE_TEMPLATE/`
+- security issues: follow `SECURITY.md` and do not post exploit details publicly

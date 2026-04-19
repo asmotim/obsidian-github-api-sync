@@ -1,0 +1,35 @@
+name: Governance audit
+
+on:
+  schedule:
+    - cron: '31 4 * * 3'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  governance-audit:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Governance checks
+        run: npm run governance:check
+
+      - name: Build
+        run: npm run build
+
+      - name: Release preflight
+        run: npm run release:preflight

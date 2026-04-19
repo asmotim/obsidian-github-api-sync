@@ -1,3 +1,4 @@
+import { type TFile } from "obsidian";
 import type {
   ConflictRecord,
   LocalIndex,
@@ -10,7 +11,7 @@ import type {
 
 export interface LocalIndexer {
   scan(rootPath: string, ignorePatterns: string[]): Promise<LocalIndex>;
-  computeHash(path: string): Promise<string>;
+  computeHash(file: TFile): Promise<string>;
   setPreviousBaseline(baseline: SyncBaseline | null): void;
   setMaxFileSizeMB(maxSizeMB: number): void;
 }

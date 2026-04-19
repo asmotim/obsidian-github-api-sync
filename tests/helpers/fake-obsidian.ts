@@ -7,12 +7,12 @@ type Stored = {
 
 export class FakeTFile extends TFile {
   path: string;
-  stat: { mtime: number; size: number };
+  stat: { ctime: number; mtime: number; size: number };
 
   constructor(path: string, data: Uint8Array) {
     super();
     this.path = path;
-    this.stat = { mtime: Date.now(), size: data.length };
+    this.stat = { ctime: Date.now(), mtime: Date.now(), size: data.length };
   }
 }
 

@@ -1,0 +1,60 @@
+name: Sync regression
+description: Report a sync planner, conflict, or remote/local divergence issue.
+title: "sync: "
+labels:
+  - bug
+  - sync
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this template for planner, engine, rename, delete, or conflict regressions. Do not include tokens.
+  - type: input
+    id: plugin_version
+    attributes:
+      label: Plugin version / commit
+    validations:
+      required: true
+  - type: input
+    id: branch
+    attributes:
+      label: GitHub branch
+      placeholder: e.g. main
+    validations:
+      required: true
+  - type: dropdown
+    id: conflict_policy
+    attributes:
+      label: Conflict policy
+      options:
+        - manual
+        - keepBoth
+        - preferLocal
+        - preferRemote
+        - unknown
+    validations:
+      required: true
+  - type: textarea
+    id: scenario
+    attributes:
+      label: Scenario
+      placeholder: Which files changed where, in what order, on which devices?
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected sync result
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual sync result
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Sanitized evidence
+      description: Include logs, screenshots, or a minimal file tree if helpful.
