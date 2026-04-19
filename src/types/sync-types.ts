@@ -4,6 +4,8 @@ export type SyncConfig = {
   repo: string;
   branch: string;
   rootPath: string;
+  repoScopeMode: "fullRepo" | "subfolder";
+  repoSubfolder: string;
   ignorePatterns: string[];
   conflictPolicy: "preferLocal" | "preferRemote" | "keepBoth" | "manual";
   syncIntervalMinutes?: number;

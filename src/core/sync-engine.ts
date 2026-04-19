@@ -71,7 +71,13 @@ export class DefaultSyncEngine implements SyncEngine {
 
       const [local, remote] = await Promise.all([
         this.localIndexer.scan(config.rootPath, config.ignorePatterns),
-        this.remoteIndexer.fetchIndex(config.owner, config.repo, config.branch, baseline),
+        this.remoteIndexer.fetchIndex(
+          config.owner,
+          config.repo,
+          config.branch,
+          baseline,
+          this.getRepoSubfolder(config)
+        ),
       ]);
 
       // Stage 2: Planning
@@ -149,7 +155,8 @@ export class DefaultSyncEngine implements SyncEngine {
         config.owner,
         config.repo,
         config.branch,
-        null
+        null,
+        this.getRepoSubfolder(config)
       );
 
       // Rescan local with baseline optimization (reuses hashes for unchanged files)
@@ -213,7 +220,7 @@ export class DefaultSyncEngine implements SyncEngine {
 
     for (const op of pullUpdates) {
       await this.runOp(`${op.type} ${op.path}`, failures, () =>
-        this.pullRemoteFile(op.path, config.branch)
+        this.pullRemoteFile(op.path, config)
       );
     }
 
@@ -275,9 +282,12 @@ export class DefaultSyncEngine implements SyncEngine {
     await this.app.fileManager.trashFile(abstractFile);
   }
 
-  private async pullRemoteFile(path: string, branch: string): Promise<void> {
+  private async pullRemoteFile(path: string, config: SyncConfig): Promise<void> {
     const normalized = normalizePath(path);
-    const { content } = await this.gitClient.getFile(normalized, branch);
+    const { content } = await this.gitClient.getFile(
+      this.toRemotePath(normalized, this.getRepoSubfolder(config)),
+      config.branch
+    );
     const buffer = Buffer.from(content, "base64");
     await this.ensureParentFolder(normalized);
     const existing = this.app.vault.getAbstractFileByPath(normalized);
@@ -289,9 +299,16 @@ export class DefaultSyncEngine implements SyncEngine {
     await this.app.vault.createBinary(normalized, toArrayBuffer(buffer));
   }
 
-  private async pullRemoteCopy(path: string, targetPath: string, branch: string): Promise<void> {
+  private async pullRemoteCopy(
+    path: string,
+    targetPath: string,
+    config: SyncConfig
+  ): Promise<void> {
     const normalized = normalizePath(path);
-    const { content } = await this.gitClient.getFile(normalized, branch);
+    const { content } = await this.gitClient.getFile(
+      this.toRemotePath(normalized, this.getRepoSubfolder(config)),
+      config.branch
+    );
     const buffer = Buffer.from(content, "base64");
     await this.ensureParentFolder(targetPath);
     await this.app.vault.createBinary(targetPath, toArrayBuffer(buffer));
@@ -307,7 +324,7 @@ export class DefaultSyncEngine implements SyncEngine {
     const remoteEntry = remote[fromPath];
     if (remoteEntry?.sha) {
       await this.gitClient.deleteFile(
-        fromPath,
+        this.toRemotePath(fromPath, this.getRepoSubfolder(config)),
         `sync: delete ${fromPath}`,
         remoteEntry.sha,
         config.branch
@@ -325,7 +342,12 @@ export class DefaultSyncEngine implements SyncEngine {
       return;
     }
 
-    await this.gitClient.deleteFile(path, `sync: delete ${path}`, remoteEntry.sha, config.branch);
+    await this.gitClient.deleteFile(
+      this.toRemotePath(path, this.getRepoSubfolder(config)),
+      `sync: delete ${path}`,
+      remoteEntry.sha,
+      config.branch
+    );
   }
 
   private async pushLocalFile(
@@ -343,7 +365,7 @@ export class DefaultSyncEngine implements SyncEngine {
     const contentBase64 = Buffer.from(data).toString("base64");
     const remoteEntry = remote[path];
     await this.gitClient.putFile(
-      normalized,
+      this.toRemotePath(normalized, this.getRepoSubfolder(config)),
       contentBase64,
       `sync: update ${path}`,
       remoteEntry?.sha,
@@ -366,23 +388,33 @@ export class DefaultSyncEngine implements SyncEngine {
       const normalized = normalizePath(path);
       const abstractFile = this.app.vault.getAbstractFileByPath(normalized);
       if (!abstractFile || !(abstractFile instanceof TFile)) {
-        console.warn(`batchPush: File not found for update: ${normalized}`);
+        console.warn("batchPush: File not found for an update operation.");
         continue;
       }
       try {
         const data = await this.app.vault.readBinary(abstractFile);
         const contentBase64 = Buffer.from(data).toString("base64");
         const blobSha = await this.gitClient.createBlob(contentBase64);
-        entries.push({ path: normalized, sha: blobSha, mode: "100644", type: "blob" });
+        entries.push({
+          path: this.toRemotePath(normalized, this.getRepoSubfolder(config)),
+          sha: blobSha,
+          mode: "100644",
+          type: "blob",
+        });
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
-        console.error(`batchPush: Failed to process file ${normalized}: ${message}`);
-        throw new Error(`Failed to process file ${normalized}: ${message}`);
+        console.error(`batchPush: Failed to process an update operation: ${message}`);
+        throw new Error(`Failed to process an update operation: ${message}`);
       }
     }
 
     for (const path of deletes) {
-      entries.push({ path: normalizePath(path), sha: null, mode: "100644", type: "blob" });
+      entries.push({
+        path: this.toRemotePath(normalizePath(path), this.getRepoSubfolder(config)),
+        sha: null,
+        mode: "100644",
+        type: "blob",
+      });
     }
 
     if (entries.length === 0) {
@@ -450,7 +482,7 @@ export class DefaultSyncEngine implements SyncEngine {
       const conflictPath = this.nextConflictPath(conflict.path, tag);
 
       if (reason === "modify-modify") {
-        await this.pullRemoteCopy(conflict.path, conflictPath, config.branch);
+        await this.pullRemoteCopy(conflict.path, conflictPath, config);
         await this.log(
           "warn",
           `Conflict keepBoth: remote copy saved as ${conflictPath}`
@@ -459,7 +491,7 @@ export class DefaultSyncEngine implements SyncEngine {
       }
 
       if (reason === "delete-modify-local") {
-        await this.pullRemoteCopy(conflict.path, conflictPath, config.branch);
+        await this.pullRemoteCopy(conflict.path, conflictPath, config);
         await this.log(
           "warn",
           `Conflict keepBoth: remote copy saved as ${conflictPath}`
@@ -476,7 +508,7 @@ export class DefaultSyncEngine implements SyncEngine {
       }
 
       if (reason === "local-missing-remote") {
-        await this.pullRemoteFile(conflict.path, config.branch);
+        await this.pullRemoteFile(conflict.path, config);
         await this.log(
           "warn",
           `Conflict keepBoth: remote restored ${conflict.path}`
@@ -534,6 +566,19 @@ export class DefaultSyncEngine implements SyncEngine {
     }
 
     return { entries, commitSha };
+  }
+
+  private getRepoSubfolder(config: SyncConfig): string {
+    if (config.repoScopeMode !== "subfolder") {
+      return "";
+    }
+    const trimmed = config.repoSubfolder.trim();
+    return trimmed.length > 0 ? trimmed.replace(/^\/+|\/+$/g, "") : "vault";
+  }
+
+  private toRemotePath(localPath: string, repoSubfolder: string): string {
+    const normalizedLocal = normalizePath(localPath);
+    return repoSubfolder ? `${repoSubfolder}/${normalizedLocal}` : normalizedLocal;
   }
 
   private buildIncrementalBaseline(

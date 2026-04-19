@@ -56,7 +56,8 @@ Release smoke should verify at minimum:
 | Change type | Expected validation |
 | --- | --- |
 | planner / engine logic | targeted tests plus integration coverage |
-| auth / token / request handling | unit tests plus docs update |
+| auth / token / request handling | unit tests plus docs update (including token persistence behavior) |
+| repository root vs subfolder sync scope | targeted tests for path mapping and conflict handling |
 | UI-only change | at least a focused regression check and manual smoke |
 | workflow / release / scripts | local script execution or CI evidence |
 | trust-boundary change | tests, docs, and ADR |

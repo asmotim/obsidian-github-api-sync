@@ -21,7 +21,8 @@ export interface RemoteIndexer {
     owner: string,
     repo: string,
     branch: string,
-    baseline?: SyncBaseline | null
+    baseline?: SyncBaseline | null,
+    repoSubfolder?: string
   ): Promise<RemoteIndex>;
   fetchDiff(baseSha: string, headSha: string): Promise<RemoteIndex>;
 }

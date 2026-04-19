@@ -13,13 +13,15 @@ export class GitHubRemoteIndexer implements RemoteIndexer {
     owner: string,
     repo: string,
     branch: string,
-    baseline?: SyncBaseline | null
+    baseline?: SyncBaseline | null,
+    repoSubfolder?: string
   ): Promise<RemoteIndex> {
     void owner;
     void repo;
     if (!baseline?.commitSha) {
       try {
-        return await this.client.listTree(branch);
+        const tree = await this.client.listTree(branch);
+        return this.filterToSubfolder(tree, repoSubfolder);
       } catch (error) {
         if (this.isEmptyRepoError(error)) {
           return {};
@@ -29,9 +31,10 @@ export class GitHubRemoteIndexer implements RemoteIndexer {
     }
 
     try {
-      return await this.buildIncrementalIndex(branch, baseline);
+      return await this.buildIncrementalIndex(branch, baseline, repoSubfolder);
     } catch {
-      return this.client.listTree(branch);
+      const tree = await this.client.listTree(branch);
+      return this.filterToSubfolder(tree, repoSubfolder);
     }
   }
 
@@ -42,7 +45,8 @@ export class GitHubRemoteIndexer implements RemoteIndexer {
 
   private async buildIncrementalIndex(
     branch: string,
-    baseline: SyncBaseline
+    baseline: SyncBaseline,
+    repoSubfolder?: string
   ): Promise<RemoteIndex> {
     const index: RemoteIndex = {};
     for (const [path, entry] of Object.entries(baseline.entries)) {
@@ -61,16 +65,27 @@ export class GitHubRemoteIndexer implements RemoteIndexer {
     const commitTime = Number.isFinite(time) ? time : 0;
 
     for (const file of comparison.files) {
+      const filename = this.stripSubfolder(file.filename, repoSubfolder);
+      const previousFilename = file.previous_filename
+        ? this.stripSubfolder(file.previous_filename, repoSubfolder)
+        : null;
+
       if (file.status === "removed") {
-        delete index[file.filename];
-        if (file.previous_filename) {
-          delete index[file.previous_filename];
+        if (filename) {
+          delete index[filename];
+        }
+        if (previousFilename) {
+          delete index[previousFilename];
         }
         continue;
       }
 
-      if (file.status === "renamed" && file.previous_filename) {
-        delete index[file.previous_filename];
+      if (file.status === "renamed" && previousFilename) {
+        delete index[previousFilename];
+      }
+
+      if (!filename) {
+        continue;
       }
 
       // Use SHA from compareCommits API if available, otherwise fetch file
@@ -78,12 +93,13 @@ export class GitHubRemoteIndexer implements RemoteIndexer {
       if (file.sha) {
         sha = file.sha;
       } else {
-        const info = await this.client.getFile(file.filename, branch);
+        const remoteFilePath = this.toRemotePath(filename, repoSubfolder);
+        const info = await this.client.getFile(remoteFilePath, branch);
         sha = info.sha;
       }
 
-      index[file.filename] = {
-        path: file.filename,
+      index[filename] = {
+        path: filename,
         sha,
         size: 0,
         lastCommitTime: commitTime,
@@ -96,5 +112,49 @@ export class GitHubRemoteIndexer implements RemoteIndexer {
   private isEmptyRepoError(error: unknown): boolean {
     const message = error instanceof Error ? error.message : String(error);
     return message.includes("Git Repository is empty");
+  }
+
+  private filterToSubfolder(index: RemoteIndex, repoSubfolder?: string): RemoteIndex {
+    if (!repoSubfolder) {
+      return index;
+    }
+    const filtered: RemoteIndex = {};
+    for (const [path, entry] of Object.entries(index)) {
+      const stripped = this.stripSubfolder(path, repoSubfolder);
+      if (!stripped) {
+        continue;
+      }
+      filtered[stripped] = {
+        ...entry,
+        path: stripped,
+      };
+    }
+    return filtered;
+  }
+
+  private stripSubfolder(path: string, repoSubfolder?: string): string | null {
+    const prefix = this.normalizeRepoSubfolder(repoSubfolder);
+    if (!prefix) {
+      return path;
+    }
+    if (path === prefix) {
+      return "";
+    }
+    if (!path.startsWith(`${prefix}/`)) {
+      return null;
+    }
+    return path.slice(prefix.length + 1);
+  }
+
+  private toRemotePath(path: string, repoSubfolder?: string): string {
+    const prefix = this.normalizeRepoSubfolder(repoSubfolder);
+    return prefix ? `${prefix}/${path}` : path;
+  }
+
+  private normalizeRepoSubfolder(repoSubfolder?: string): string {
+    if (!repoSubfolder) {
+      return "";
+    }
+    return repoSubfolder.replace(/^\/+|\/+$/g, "");
   }
 }

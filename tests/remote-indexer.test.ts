@@ -21,6 +21,24 @@ describe("GitHubRemoteIndexer", () => {
     expect(result).toEqual(listTreeResponse);
   });
 
+  it("limits index to configured repository subfolder", async () => {
+    const client = {
+      listTree: vi.fn().mockResolvedValue({
+        "vault/a.md": { path: "vault/a.md", sha: "s1", size: 1, lastCommitTime: 0 },
+        "docs/readme.md": { path: "docs/readme.md", sha: "s2", size: 1, lastCommitTime: 0 },
+      }),
+      compareCommits: vi.fn(),
+      getFile: vi.fn(),
+    };
+
+    const indexer = new GitHubRemoteIndexer(client as any);
+    const result = await indexer.fetchIndex("o", "r", "main", null, "vault");
+
+    expect(result).toEqual({
+      "a.md": { path: "a.md", sha: "s1", size: 1, lastCommitTime: 0 },
+    });
+  });
+
   it("builds incremental index from baseline", async () => {
     const client = {
       listTree: vi.fn(),
