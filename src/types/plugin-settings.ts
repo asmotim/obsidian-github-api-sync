@@ -1,3 +1,7 @@
+/**
+ * Persisted user-facing sync settings. Auth tokens and other volatile state
+ * are intentionally stored elsewhere so settings remain safe to rewrite.
+ */
 export type PluginSettings = {
   owner: string;
   repo: string;
@@ -11,6 +15,9 @@ export type PluginSettings = {
   maxFileSizeMB: number;
 };
 
+/**
+ * Default sync settings for new installations and for missing legacy fields.
+ */
 export const DEFAULT_SETTINGS: PluginSettings = {
   owner: "",
   repo: "",
@@ -24,6 +31,11 @@ export const DEFAULT_SETTINGS: PluginSettings = {
   maxFileSizeMB: 50, // GitHub API limit is 100MB, use 50MB as safe default
 };
 
+/**
+ * Returns the settings payload that is safe to persist back into plugin data.
+ * This intentionally excludes auth/session state, previews, logs, and baseline
+ * data because those live in separate storage surfaces.
+ */
 export const sanitizeSettingsForPersistence = (
   settings: PluginSettings
 ): PluginSettings => ({
@@ -36,6 +48,10 @@ const isRepoScopeMode = (value: unknown): value is PluginSettings["repoScopeMode
 const isConflictPolicy = (value: unknown): value is PluginSettings["conflictPolicy"] =>
   value === "preferLocal" || value === "preferRemote" || value === "keepBoth" || value === "manual";
 
+/**
+ * Extracts the supported settings shape from raw plugin storage while keeping
+ * backwards compatibility with older PAT-era payloads.
+ */
 export const extractPluginSettings = (data: unknown): PluginSettings | undefined => {
   if (!data || typeof data !== "object") {
     return undefined;

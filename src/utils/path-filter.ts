@@ -1,5 +1,9 @@
 import { normalizePath } from "obsidian";
 
+/**
+ * Returns whether a vault-relative path matches the current ignore rules.
+ * Directory patterns ending in `/` apply to the whole subtree.
+ */
 export const isIgnoredPath = (path: string, ignorePatterns: string[]): boolean => {
   if (ignorePatterns.length === 0) {
     return false;
@@ -29,6 +33,10 @@ export const isIgnoredPath = (path: string, ignorePatterns: string[]): boolean =
   return false;
 };
 
+/**
+ * Returns whether any path segment is hidden, such as `.obsidian` or `.gitkeep`.
+ * Hidden segments are treated as sensitive or non-user content during sync.
+ */
 export const hasHiddenPathSegment = (path: string): boolean => {
   const normalized = normalizePath(path);
   return normalized.split("/").some((segment) => segment.startsWith(".") && segment.length > 1);

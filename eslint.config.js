@@ -66,7 +66,7 @@ export default defineConfig([
       ],
       "@typescript-eslint/only-throw-error": "error",
       "@typescript-eslint/switch-exhaustiveness-check": "error",
-      "tsdoc/syntax": "warn",
+      "tsdoc/syntax": "error",
     },
   },
   {

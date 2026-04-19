@@ -456,7 +456,7 @@ export default class GitHubApiSyncPlugin extends Plugin {
 
     this.isSyncing = true;
     if (this.ribbonIconEl) {
-      this.ribbonIconEl.addClass("is-syncing");
+      this.ribbonIconEl.addClass("github-sync-ribbon-icon--syncing");
     }
 
     try {
@@ -467,7 +467,7 @@ export default class GitHubApiSyncPlugin extends Plugin {
         this.syncStatusNotice = null;
       }
       if (this.ribbonIconEl) {
-        this.ribbonIconEl.removeClass("is-syncing");
+        this.ribbonIconEl.removeClass("github-sync-ribbon-icon--syncing");
       }
       this.isSyncing = false;
     }

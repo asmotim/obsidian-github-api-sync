@@ -7,6 +7,7 @@ These standards apply to runtime TypeScript under `src/`, tests under `tests/`, 
 ## TypeScript and JavaScript
 
 - prefer explicit, narrow types over `any`
+- runtime code must not use `any`; tests may use narrowly scoped `as any` only at Obsidian/runtime mocking boundaries when a typed fake would add more noise than safety
 - use `import type` for type-only imports
 - treat async flows as first-class:
   - do not leave promises floating
@@ -31,7 +32,8 @@ These standards apply to runtime TypeScript under `src/`, tests under `tests/`, 
 - never log tokens, raw authorization headers, refresh tokens, or client secrets
 - avoid raw HTML injection APIs such as `innerHTML`, `outerHTML`, and `insertAdjacentHTML`
 - do not use `eval` or dynamic `Function` construction
-- prefer centralized logging/redaction helpers over ad-hoc `console.*`
+- prefer centralized logging/redaction helpers over ad-hoc `console.*` in runtime code
+- build and governance scripts may write explicit status lines to stdout/stderr, but must never print secrets
 
 ## Efficiency Rules
 

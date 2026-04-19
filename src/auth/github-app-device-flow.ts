@@ -51,6 +51,10 @@ type InstallationRepositoriesResponse = {
 const GITHUB_LOGIN_BASE_URL = "https://github.com";
 const GITHUB_API_BASE_URL = "https://api.github.com";
 
+/**
+ * Represents an OAuth-level failure returned by GitHub during device-flow or
+ * refresh-token requests so callers can branch on the GitHub error code.
+ */
 export class GitHubAppOAuthError extends Error {
   code: string;
 
@@ -61,6 +65,11 @@ export class GitHubAppOAuthError extends Error {
   }
 }
 
+/**
+ * Wraps the GitHub App device-flow and authenticated discovery requests used
+ * by the browser-hosted plugin runtime. All requests go through Obsidian's
+ * network API so the same codepath remains usable on desktop and mobile.
+ */
 export class GitHubAppDeviceFlowClient {
   async startDeviceFlow(clientId: string): Promise<GitHubAppDeviceFlowSession> {
     const url = this.buildLoginUrl("/login/device/code", {

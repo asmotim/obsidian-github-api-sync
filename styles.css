@@ -6,13 +6,13 @@
 }
 
 /* Spinning animation when syncing */
-.github-sync-ribbon-icon.is-syncing {
+.github-sync-ribbon-icon--syncing {
   animation: github-sync-spin 1s linear infinite;
 }
 
 @media (prefers-reduced-motion: reduce) {
   .github-sync-ribbon-icon,
-  .github-sync-ribbon-icon.is-syncing {
+  .github-sync-ribbon-icon--syncing {
     animation: none;
     transition: none;
   }
