@@ -12,9 +12,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - governance baseline documents, ADRs, contribution guidance, and repository setting checklist
 - CI, CodeQL, Dependabot, and governance-audit workflows
 - version-sync, README disclosure, and release-asset verification scripts
+- GitHub App device-flow auth with shared-app setup, local token refresh, and installed-repository discovery
+- sync preview, sync health, destructive-delete approval, and baseline-repair workflows
+- stricter TypeScript/ESLint/Stylelint/script-quality baselines and coding-standards documentation
 
 ### Changed
 
 - package metadata version alignment policy tightened around `manifest.json` and `package.json`
 - release workflow hardened to verify build, version, and release assets before creating a draft release
 - README rewritten as an orientation and disclosure surface instead of a catch-all policy store
+- settings now expose direct sync/preview/health/repair actions and a simpler shared-app repository picker
+- preview output is grouped into human-readable sections instead of a raw text dump

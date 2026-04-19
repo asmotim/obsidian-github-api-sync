@@ -6,8 +6,8 @@
     "build": "npm run validate && node scripts/build.mjs",
     "dev": "node scripts/build.mjs --watch",
     "validate": "node scripts/validate-manifest.mjs && node scripts/check-version-sync.mjs",
-    "typecheck": "tsc --noEmit",
-    "lint": "eslint \"src/**/*.ts\"",
+    "typecheck": "tsc --noEmit && tsc -p tsconfig.scripts.json --noEmit",
+    "lint": "eslint \"src/**/*.ts\" \"tests/**/*.ts\" \"scripts/**/*.mjs\" && stylelint \"styles.css\"",
     "governance:check": "npm run validate && node scripts/check-readme-disclosures.mjs",
     "release:preflight": "npm run governance:check && node scripts/check-release-assets.mjs",
     "ci": "npm run governance:check && npm run typecheck && npm run lint && npm test && npm run build && npm run release:preflight",
@@ -23,10 +23,12 @@
     "esbuild": "^0.21.5",
     "eslint": "^9.39.2",
     "eslint-plugin-obsidianmd": "^0.1.9",
+    "eslint-plugin-tsdoc": "^0.4.0",
     "obsidian": "^1.11.4",
+    "stylelint": "^16.26.1",
+    "stylelint-config-standard": "^39.0.1",
     "typescript": "^5.9.3",
     "typescript-eslint": "^8.52.0",
     "vitest": "^1.6.0"
-  },
-  "dependencies": {}
+  }
 }

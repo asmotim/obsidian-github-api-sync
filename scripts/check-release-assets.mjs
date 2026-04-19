@@ -1,7 +1,14 @@
+// @ts-check
+
 import { readFile } from "fs/promises";
 import { existsSync } from "fs";
 
+/**
+ * @param {string[]} argv
+ * @returns {{ expectVersion: string | null }}
+ */
 function parseArgs(argv) {
+  /** @type {{ expectVersion: string | null }} */
   const args = { expectVersion: null };
   for (let i = 0; i < argv.length; i += 1) {
     if (argv[i] === "--expect-version") {
@@ -23,7 +30,9 @@ if (missing.length > 0) {
   throw new Error(`Missing release assets: ${missing.join(", ")}`);
 }
 
+/** @type {{ version: string }} */
 const rootManifest = JSON.parse(await readFile("manifest.json", "utf8"));
+/** @type {{ version: string }} */
 const distManifest = JSON.parse(await readFile("dist/manifest.json", "utf8"));
 
 if (rootManifest.version !== distManifest.version) {

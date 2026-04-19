@@ -1,10 +1,8 @@
 export type PluginSettings = {
-  token: string;
   owner: string;
   repo: string;
   branch: string;
   rootPath: string;
-  persistToken: boolean;
   repoScopeMode: "fullRepo" | "subfolder";
   repoSubfolder: string;
   ignorePatterns: string[];
@@ -14,12 +12,10 @@ export type PluginSettings = {
 };
 
 export const DEFAULT_SETTINGS: PluginSettings = {
-  token: "",
   owner: "",
   repo: "",
   branch: "main",
   rootPath: "",
-  persistToken: false,
   repoScopeMode: "fullRepo",
   repoSubfolder: "vault",
   ignorePatterns: [".git/"],
@@ -32,5 +28,57 @@ export const sanitizeSettingsForPersistence = (
   settings: PluginSettings
 ): PluginSettings => ({
   ...settings,
-  token: settings.persistToken ? settings.token : "",
 });
+
+const isRepoScopeMode = (value: unknown): value is PluginSettings["repoScopeMode"] =>
+  value === "fullRepo" || value === "subfolder";
+
+const isConflictPolicy = (value: unknown): value is PluginSettings["conflictPolicy"] =>
+  value === "preferLocal" || value === "preferRemote" || value === "keepBoth" || value === "manual";
+
+export const extractPluginSettings = (data: unknown): PluginSettings | undefined => {
+  if (!data || typeof data !== "object") {
+    return undefined;
+  }
+
+  const obj = data as Record<string, unknown>;
+  const hasSettings =
+    "owner" in obj ||
+    "repo" in obj ||
+    "branch" in obj ||
+    "rootPath" in obj ||
+    "repoScopeMode" in obj ||
+    "repoSubfolder" in obj ||
+    "ignorePatterns" in obj ||
+    "conflictPolicy" in obj ||
+    "syncIntervalMinutes" in obj ||
+    "maxFileSizeMB" in obj ||
+    // Accept legacy auth fields so older plugin data still loads current defaults.
+    "authMode" in obj ||
+    "token" in obj ||
+    "persistToken" in obj ||
+    "githubAppClientId" in obj ||
+    "githubAppInstallUrl" in obj;
+
+  if (!hasSettings) {
+    return undefined;
+  }
+
+  return {
+    owner: typeof obj.owner === "string" ? obj.owner : DEFAULT_SETTINGS.owner,
+    repo: typeof obj.repo === "string" ? obj.repo : DEFAULT_SETTINGS.repo,
+    branch: typeof obj.branch === "string" ? obj.branch : DEFAULT_SETTINGS.branch,
+    rootPath: typeof obj.rootPath === "string" ? obj.rootPath : DEFAULT_SETTINGS.rootPath,
+    repoScopeMode: isRepoScopeMode(obj.repoScopeMode) ? obj.repoScopeMode : DEFAULT_SETTINGS.repoScopeMode,
+    repoSubfolder: typeof obj.repoSubfolder === "string" ? obj.repoSubfolder : DEFAULT_SETTINGS.repoSubfolder,
+    ignorePatterns: Array.isArray(obj.ignorePatterns)
+      ? obj.ignorePatterns.filter((entry): entry is string => typeof entry === "string")
+      : DEFAULT_SETTINGS.ignorePatterns,
+    conflictPolicy: isConflictPolicy(obj.conflictPolicy) ? obj.conflictPolicy : DEFAULT_SETTINGS.conflictPolicy,
+    syncIntervalMinutes:
+      typeof obj.syncIntervalMinutes === "number" || obj.syncIntervalMinutes === null
+        ? obj.syncIntervalMinutes
+        : DEFAULT_SETTINGS.syncIntervalMinutes,
+    maxFileSizeMB: typeof obj.maxFileSizeMB === "number" ? obj.maxFileSizeMB : DEFAULT_SETTINGS.maxFileSizeMB,
+  };
+};

@@ -2,14 +2,14 @@ import { Modal, Setting } from "obsidian";
 import type GitHubApiSyncPlugin from "../main";
 
 export class SyncLogModal extends Modal {
-  private plugin: GitHubApiSyncPlugin;
+  private readonly plugin: GitHubApiSyncPlugin;
 
   constructor(plugin: GitHubApiSyncPlugin) {
     super(plugin.app);
     this.plugin = plugin;
   }
 
-  async onOpen(): Promise<void> {
+  override async onOpen(): Promise<void> {
     const { contentEl } = this;
     contentEl.empty();
 
@@ -34,7 +34,7 @@ export class SyncLogModal extends Modal {
     textarea.addClass("github-api-sync-log-textarea");
   }
 
-  onClose(): void {
+  override onClose(): void {
     const { contentEl } = this;
     contentEl.empty();
   }

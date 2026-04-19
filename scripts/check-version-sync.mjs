@@ -1,7 +1,14 @@
+// @ts-check
+
 import { readFile } from "fs/promises";
 import { existsSync } from "fs";
 
+/**
+ * @param {string[]} argv
+ * @returns {{ expectVersion: string | null }}
+ */
 function parseArgs(argv) {
+  /** @type {{ expectVersion: string | null }} */
   const args = { expectVersion: null };
   for (let i = 0; i < argv.length; i += 1) {
     const current = argv[i];
@@ -13,13 +20,22 @@ function parseArgs(argv) {
   return args;
 }
 
+/**
+ * @template T
+ * @param {string} path
+ * @returns {Promise<T>}
+ */
 async function readJson(path) {
-  return JSON.parse(await readFile(path, "utf8"));
+  return /** @type {T} */ (JSON.parse(await readFile(path, "utf8")));
 }
 
 const args = parseArgs(process.argv.slice(2));
-const manifest = await readJson("manifest.json");
-const pkg = await readJson("package.json");
+const manifest = await readJson(
+  "manifest.json"
+);
+const pkg = await readJson(
+  "package.json"
+);
 const lock = existsSync("package-lock.json") ? await readJson("package-lock.json") : null;
 const versions = existsSync("versions.json") ? await readJson("versions.json") : null;
 

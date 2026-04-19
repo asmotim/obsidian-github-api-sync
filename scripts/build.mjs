@@ -1,3 +1,5 @@
+// @ts-check
+
 import { build, context } from "esbuild";
 import { mkdir, copyFile, access } from "fs/promises";
 import { resolve } from "path";
@@ -8,6 +10,7 @@ const watch = args.has("--watch");
 const outdir = resolve("dist");
 await mkdir(outdir, { recursive: true });
 
+/** @type {import("esbuild").BuildOptions} */
 const options = {
   entryPoints: ["src/main.ts"],
   bundle: true,

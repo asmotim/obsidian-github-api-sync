@@ -61,7 +61,11 @@ class FakeGitHubClient {
         lastCommitTime: 0,
       };
     }
-    return index;
+    return {
+      index,
+      truncated: false,
+      usedTruncatedTreeFallback: false,
+    };
   }
 
   async getCommitInfo(_branch: string) {
@@ -113,11 +117,21 @@ class FakeGitHubClient {
       filename: path,
       status: this.files.has(path) ? "modified" : "removed",
     }));
-    return { files, headCommitDate: new Date().toISOString() };
+    return {
+      files,
+      headCommitDate: new Date().toISOString(),
+      totalCommits: files.length,
+      hasPagination: false,
+      fileListMayBeIncomplete: false,
+    };
   }
 
   async getRepoInfo() {
     return { private: false, permissions: { push: true, pull: true } };
+  }
+
+  getLastRateLimitSnapshot() {
+    return null;
   }
 }
 
@@ -239,7 +253,11 @@ describe("integration sync", () => {
 
     const { ConflictActionRunner } = await import("../src/core/conflict-action-runner");
     const runner = new ConflictActionRunner(app as any, client as any);
-    await runner.resolve(conflicts[0], "keepLocal", baseConfig);
+    const firstConflict = conflicts[0];
+    if (!firstConflict) {
+      throw new Error("Expected a conflict to be present");
+    }
+    await runner.resolve(firstConflict, "keepLocal", baseConfig);
 
     await stateStore.saveConflicts([]);
 

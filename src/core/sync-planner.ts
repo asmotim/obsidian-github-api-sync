@@ -16,32 +16,6 @@ export class DefaultSyncPlanner implements SyncPlanner {
     const conflicts: SyncOp[] = [];
     const baselineEntries = baseline?.entries ?? {};
 
-    // Safety check: detect mass remote deletion
-    const baselineFileCount = Object.keys(baselineEntries).length;
-    const remoteFileCount = Object.keys(remote).length;
-    const localFileCount = Object.keys(local).length;
-
-    // If baseline had files, but remote is now empty or drastically reduced
-    if (baselineFileCount > 10 && remoteFileCount === 0 && localFileCount > 10) {
-      console.warn(
-        `⚠️  SAFETY WARNING: Remote repository appears to be empty (0 files), ` +
-        `but local has ${localFileCount} files and baseline had ${baselineFileCount} files. ` +
-        `This might indicate an accidental remote deletion. ` +
-        `All local files would normally be deleted, but treating as conflicts instead for safety.`
-      );
-
-      // Treat all "would-be-deleted" files as conflicts instead
-      for (const path of Object.keys(local)) {
-        conflicts.push({
-          type: "conflict",
-          path,
-          reason: "mass-remote-deletion-safety",
-        });
-      }
-
-      return { ops, conflicts };
-    }
-
     const renameLocal = this.detectLocalRenames(local, remote, baselineEntries);
     const renameRemote = this.detectRemoteRenames(local, remote, baselineEntries);
 

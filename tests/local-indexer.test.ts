@@ -14,7 +14,7 @@ describe("LocalVaultIndexer", () => {
 
     const index = await indexer.scan("Journal", []);
     expect(Object.keys(index)).toEqual(["Journal/one.md"]);
-    expect(index["Journal/one.md"].hash).toBeDefined();
+    expect(index["Journal/one.md"]?.hash).toBeDefined();
   });
 
   it("applies ignore patterns", async () => {

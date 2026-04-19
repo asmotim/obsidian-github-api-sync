@@ -1,10 +1,17 @@
 import { normalizePath, type App, TFile } from "obsidian";
 import type {
+  ConflictRecord,
   LocalIndex,
   RemoteIndex,
+  SyncApprovalRequirement,
   SyncBaseline,
   SyncConfig,
+  SyncDiagnosticEntry,
+  SyncHealthState,
   SyncOp,
+  SyncOpCounts,
+  SyncPlanSummary,
+  SyncPreview,
   SyncProgress,
 } from "../types/sync-types";
 import type {
@@ -16,6 +23,8 @@ import type {
   SyncEngine,
   SyncPlanner,
 } from "../types/interfaces";
+import { hasHiddenPathSegment, isIgnoredPath } from "../utils/path-filter";
+import { runtimeLog } from "../utils/runtime-log";
 
 const toArrayBuffer = (bytes: Uint8Array): ArrayBuffer => {
   const copy = new Uint8Array(bytes.byteLength);
@@ -23,14 +32,32 @@ const toArrayBuffer = (bytes: Uint8Array): ArrayBuffer => {
   return copy.buffer;
 };
 
+type PreparedSyncPlan = {
+  baseline: SyncBaseline | null;
+  local: LocalIndex;
+  remote: RemoteIndex;
+  remotePlaceholderDirectories: string[];
+  conflicts: SyncOp[];
+  conflictRecords: ConflictRecord[];
+  finalOps: Array<Exclude<SyncOp, { type: "conflict" }>>;
+  preview: SyncPreview;
+};
+
+/**
+ * Orchestrates sync execution, preview generation, delete-safety approval, and
+ * baseline repair while keeping user-visible state persisted for later review.
+ */
 export class DefaultSyncEngine implements SyncEngine {
-  private app: App;
-  private gitClient: GitHubClient;
-  private localIndexer: LocalIndexer;
-  private remoteIndexer: RemoteIndexer;
-  private planner: SyncPlanner;
-  private resolver: ConflictResolver;
-  private stateStore: StateStore;
+  private static readonly MASS_DELETE_MIN_FILES = 10;
+  private static readonly MASS_DELETE_RATIO_THRESHOLD = 0.5;
+
+  private readonly app: App;
+  private readonly gitClient: GitHubClient;
+  private readonly localIndexer: LocalIndexer;
+  private readonly remoteIndexer: RemoteIndexer;
+  private readonly planner: SyncPlanner;
+  private readonly resolver: ConflictResolver;
+  private readonly stateStore: StateStore;
 
   constructor(
     app: App,
@@ -52,129 +79,458 @@ export class DefaultSyncEngine implements SyncEngine {
 
   async sync(config: SyncConfig): Promise<void> {
     await this.log("info", "Sync started.");
+    let prepared: PreparedSyncPlan | null = null;
+    let healthPersisted = false;
+
     try {
-      // Stage 1: Scanning
       this.reportProgress(config, {
         stage: "scanning",
         message: "Loading baseline and scanning files...",
       });
 
-      const baseline = await this.stateStore.loadBaseline();
+      prepared = await this.prepareSyncPlan(config);
+      await this.stateStore.savePreview?.(prepared.preview);
+      await this.stateStore.saveConflicts(prepared.conflictRecords);
 
-      // Pass baseline to local indexer for hash optimization
-      this.localIndexer.setPreviousBaseline(baseline);
-
-      // Set max file size limit
-      if (config.maxFileSizeMB) {
-        this.localIndexer.setMaxFileSizeMB(config.maxFileSizeMB);
+      if (
+        prepared.preview.approval.required &&
+        config.approvalKey !== prepared.preview.approval.key
+      ) {
+        await this.log(
+          "warn",
+          `Sync blocked pending approval for ${prepared.preview.approval.pullDeleteCount} local deletions.`
+        );
+        await this.persistHealth(
+          this.buildHealthState(config, prepared.preview, "sync", "blocked", prepared.preview.approval.reason ?? "Sync blocked pending approval.")
+        );
+        healthPersisted = true;
+        throw new Error(
+          "Sync blocked: preview requires approval for a large set of local deletions. Review the preview and run the approval command if the change is intentional."
+        );
       }
 
-      const [local, remote] = await Promise.all([
-        this.localIndexer.scan(config.rootPath, config.ignorePatterns),
-        this.remoteIndexer.fetchIndex(
-          config.owner,
-          config.repo,
-          config.branch,
-          baseline,
-          this.getRepoSubfolder(config)
-        ),
-      ]);
-
-      // Stage 2: Planning
-      this.reportProgress(config, {
-        stage: "planning",
-        message: "Planning sync operations...",
-      });
-
-      const { ops, conflicts } = this.planner.plan(local, remote, baseline);
-
-      // Log detailed plan information for debugging
-      await this.log(
-        "info",
-        `Scan results: ${Object.keys(local).length} local files, ${Object.keys(remote).length} remote files, ` +
-        `${baseline ? Object.keys(baseline.entries).length : 0} baseline entries.`
-      );
-      await this.log(
-        "info",
-        `Planned ${ops.length} ops with ${conflicts.length} conflicts.`
-      );
-
-      // Log operation breakdown
-      const opsByType = ops.reduce((acc, op) => {
-        acc[op.type] = (acc[op.type] || 0) + 1;
-        return acc;
-      }, {} as Record<string, number>);
-
-      for (const [type, count] of Object.entries(opsByType)) {
-        await this.log("info", `  ${type}: ${count}`);
-      }
-
-      // Log specific operations for debugging
-      for (const op of ops) {
-        if (op.type === "pull_new" || op.type === "pull_update") {
-          await this.log("info", `  → ${op.type}: ${op.path}`);
-        } else if (op.type === "push_new" || op.type === "push_update") {
-          await this.log("info", `  → ${op.type}: ${op.path}`);
-        } else if (op.type === "rename_local" || op.type === "rename_remote") {
-          await this.log("info", `  → ${op.type}: ${op.from} -> ${op.to}`);
-        }
-      }
-      const { resolvedOps, conflictRecords } = this.resolver.resolve(
-        conflicts,
-        config.conflictPolicy
-      );
-
-      const finalOps: SyncOp[] = [
-        ...ops.filter((op): op is Exclude<SyncOp, { type: "conflict" }> => op.type !== "conflict"),
-        ...resolvedOps,
-      ];
-
-      await this.stateStore.saveConflicts(conflictRecords);
-
-      // Stage 3: Executing
       this.reportProgress(config, {
         stage: "executing",
-        message: `Executing ${finalOps.length} operations...`,
-        total: finalOps.length,
+        message: `Executing ${prepared.finalOps.length} operations...`,
+        total: prepared.finalOps.length,
       });
 
-      await this.executeOps(finalOps, conflicts, config, local, remote);
+      await this.executeOps(
+        prepared.finalOps,
+        prepared.conflicts,
+        config,
+        prepared.local,
+        prepared.remote
+      );
+      await this.cleanupLocalSyncArtifacts(config, prepared.remotePlaceholderDirectories);
 
-      // Stage 4: Saving baseline
       this.reportProgress(config, {
         stage: "saving",
         message: "Saving sync state...",
       });
 
-      // After operations, get fresh remote state and rescan local (with cache optimization)
-      const newCommitSha = await this.gitClient.getCommitInfo(config.branch).then((info) => info.sha);
-
-      // Fetch fresh remote index to get new SHAs after push operations
-      // Use null baseline to force full fetch (since remote state changed)
-      const updatedRemote = await this.remoteIndexer.fetchIndex(
+      const commitInfo = await this.gitClient.getCommitInfo(config.branch);
+      const updatedRemoteRaw = await this.remoteIndexer.fetchIndex(
         config.owner,
         config.repo,
         config.branch,
         null,
         this.getRepoSubfolder(config)
       );
-
-      // Rescan local with baseline optimization (reuses hashes for unchanged files)
+      const updatedRemote = this.filterRemoteIndex(updatedRemoteRaw, config);
       const updatedLocal = await this.localIndexer.scan(config.rootPath, config.ignorePatterns);
+      const baselineSnapshot = this.buildBaseline(
+        updatedLocal,
+        updatedRemote,
+        commitInfo.sha,
+        this.remoteIndexer.getLastFetchMeta?.()?.placeholderDirectories ?? []
+      );
 
-      // Build baseline from updated state
-      const baselineSnapshot = this.buildBaseline(updatedLocal, updatedRemote, newCommitSha);
       await this.stateStore.saveBaseline(baselineSnapshot);
+      await this.stateStore.savePreview?.(null);
+      await this.persistHealth(
+        this.buildHealthState(config, prepared.preview, "sync", "success", "Sync completed.")
+      );
+      healthPersisted = true;
       await this.log("info", "Sync completed.");
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
+      if (!healthPersisted) {
+        await this.persistHealth(
+          this.buildHealthState(
+            config,
+            prepared?.preview ?? this.buildEmptyPreview(config),
+            "sync",
+            "failed",
+            message
+          )
+        );
+      }
       await this.log("error", `Sync failed: ${message}`);
       throw error;
     }
   }
 
+  async preview(config: SyncConfig): Promise<SyncPreview> {
+    await this.log("info", "Sync preview started.");
+    try {
+      const prepared = await this.prepareSyncPlan(config);
+      const preview: SyncPreview = {
+        ...prepared.preview,
+        diagnostics: [
+          ...prepared.preview.diagnostics,
+          {
+            code: "preview_generated",
+            level: "info",
+            message: "Preview generated from the current local, remote, and baseline state.",
+          },
+        ],
+      };
+
+      await this.stateStore.savePreview?.(preview);
+      await this.stateStore.saveConflicts(prepared.conflictRecords);
+      await this.persistHealth(
+        this.buildHealthState(config, preview, "preview", "preview", "Sync preview generated.")
+      );
+      await this.log("info", "Sync preview generated.");
+      return preview;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      const fallbackPreview = this.buildEmptyPreview(config);
+      await this.persistHealth(
+        this.buildHealthState(config, fallbackPreview, "preview", "failed", message)
+      );
+      await this.log("error", `Sync preview failed: ${message}`);
+      throw error;
+    }
+  }
+
+  async repairBaseline(config: SyncConfig): Promise<SyncBaseline> {
+    await this.log("info", "Baseline repair started.");
+    try {
+      const existingBaseline = await this.stateStore.loadBaseline();
+      this.localIndexer.setPreviousBaseline(existingBaseline);
+
+      if (config.maxFileSizeMB) {
+        this.localIndexer.setMaxFileSizeMB(config.maxFileSizeMB);
+      }
+
+      const [local, remoteRaw, commitInfo] = await Promise.all([
+        this.localIndexer.scan(config.rootPath, config.ignorePatterns),
+        this.remoteIndexer.fetchIndex(
+          config.owner,
+          config.repo,
+          config.branch,
+          null,
+          this.getRepoSubfolder(config)
+        ),
+        this.gitClient.getCommitInfo(config.branch),
+      ]);
+      const remote = this.filterRemoteIndex(remoteRaw, config);
+      const snapshot = this.buildBaseline(
+        local,
+        remote,
+        commitInfo.sha,
+        this.remoteIndexer.getLastFetchMeta?.()?.placeholderDirectories ?? []
+      );
+      await this.stateStore.saveBaseline(snapshot);
+      await this.stateStore.savePreview?.(null);
+
+      const diagnostics = [
+        ...(this.remoteIndexer.getLastFetchMeta()?.diagnostics ?? []),
+        {
+          code: "baseline_repaired",
+          level: "info",
+          message: "Baseline rebuilt from the current local and remote state.",
+        } satisfies SyncDiagnosticEntry,
+      ];
+      const preview = this.buildPreview(config, local, remote, snapshot, [], [], diagnostics);
+      await this.persistHealth(
+        this.buildHealthState(
+          config,
+          preview,
+          "repair-baseline",
+          "repaired",
+          "Baseline repaired from current local and remote state."
+        )
+      );
+      await this.log("info", "Baseline repair completed.");
+      return snapshot;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      await this.persistHealth(
+        this.buildHealthState(
+          config,
+          this.buildEmptyPreview(config),
+          "repair-baseline",
+          "failed",
+          message
+        )
+      );
+      await this.log("error", `Baseline repair failed: ${message}`);
+      throw error;
+    }
+  }
+
+  private async prepareSyncPlan(config: SyncConfig): Promise<PreparedSyncPlan> {
+    const baseline = await this.stateStore.loadBaseline();
+    this.localIndexer.setPreviousBaseline(baseline);
+
+    if (config.maxFileSizeMB) {
+      this.localIndexer.setMaxFileSizeMB(config.maxFileSizeMB);
+    }
+
+    const [local, remoteRaw] = await Promise.all([
+      this.localIndexer.scan(config.rootPath, config.ignorePatterns),
+      this.remoteIndexer.fetchIndex(
+        config.owner,
+        config.repo,
+        config.branch,
+        baseline,
+        this.getRepoSubfolder(config)
+      ),
+    ]);
+    const remote = this.filterRemoteIndex(remoteRaw, config);
+
+    this.reportProgress(config, {
+      stage: "planning",
+      message: "Planning sync operations...",
+    });
+
+    const { ops, conflicts } = this.planner.plan(local, remote, baseline);
+    const { resolvedOps, conflictRecords } = this.resolver.resolve(conflicts, config.conflictPolicy);
+    const finalOps = [
+      ...ops.filter((op): op is Exclude<SyncOp, { type: "conflict" }> => op.type !== "conflict"),
+      ...resolvedOps.filter((op): op is Exclude<SyncOp, { type: "conflict" }> => op.type !== "conflict"),
+    ];
+
+    const diagnostics = [...(this.remoteIndexer.getLastFetchMeta?.()?.diagnostics ?? [])];
+    const preview = this.buildPreview(
+      config,
+      local,
+      remote,
+      baseline,
+      finalOps,
+      conflictRecords,
+      diagnostics
+    );
+
+    await this.log(
+      "info",
+      `Plan summary: ${preview.summary.localFileCount} local, ${preview.summary.remoteFileCount} remote, ${preview.summary.baselineFileCount} baseline, ${preview.summary.conflictCount} conflicts.`
+    );
+
+    return {
+      baseline,
+      local,
+      remote,
+      remotePlaceholderDirectories:
+        this.remoteIndexer.getLastFetchMeta?.()?.placeholderDirectories ?? [],
+      conflicts,
+      conflictRecords,
+      finalOps,
+      preview,
+    };
+  }
+
+  private buildPreview(
+    config: SyncConfig,
+    local: LocalIndex,
+    remote: RemoteIndex,
+    baseline: SyncBaseline | null,
+    finalOps: Array<Exclude<SyncOp, { type: "conflict" }>>,
+    conflictRecords: ConflictRecord[],
+    diagnostics: SyncDiagnosticEntry[]
+  ): SyncPreview {
+    const summary = this.buildPlanSummary(local, remote, baseline, finalOps, conflictRecords);
+    const approval = this.buildApprovalRequirement(config, baseline, summary, finalOps);
+    const nextDiagnostics = [...diagnostics];
+
+    if (approval.required) {
+      nextDiagnostics.push({
+        code: "mass_delete_approval_required",
+        level: "warn",
+        message: approval.reason ?? "Large local delete set requires explicit approval before sync.",
+      });
+    }
+
+    return {
+      generatedAt: new Date().toISOString(),
+      owner: config.owner,
+      repo: config.repo,
+      branch: config.branch,
+      rootPath: config.rootPath,
+      repoScopeMode: config.repoScopeMode,
+      repoSubfolder: config.repoSubfolder,
+      summary,
+      diagnostics: nextDiagnostics,
+      ops: finalOps,
+      conflicts: conflictRecords,
+      approval,
+    };
+  }
+
+  private buildEmptyPreview(config: SyncConfig): SyncPreview {
+    return {
+      generatedAt: new Date().toISOString(),
+      owner: config.owner,
+      repo: config.repo,
+      branch: config.branch,
+      rootPath: config.rootPath,
+      repoScopeMode: config.repoScopeMode,
+      repoSubfolder: config.repoSubfolder,
+      summary: {
+        localFileCount: 0,
+        remoteFileCount: 0,
+        baselineFileCount: 0,
+        conflictCount: 0,
+        counts: this.emptyCounts(),
+      },
+      diagnostics: [],
+      ops: [],
+      conflicts: [],
+      approval: {
+        required: false,
+        key: null,
+        reason: null,
+        pullDeleteCount: 0,
+        deleteRatio: 0,
+        thresholdRatio: DefaultSyncEngine.MASS_DELETE_RATIO_THRESHOLD,
+      },
+    };
+  }
+
+  private buildPlanSummary(
+    local: LocalIndex,
+    remote: RemoteIndex,
+    baseline: SyncBaseline | null,
+    finalOps: Array<Exclude<SyncOp, { type: "conflict" }>>,
+    conflictRecords: ConflictRecord[]
+  ): SyncPlanSummary {
+    const counts = this.emptyCounts();
+    for (const op of finalOps) {
+      if (op.type === "pull_new") {
+        counts.pullNew += 1;
+      } else if (op.type === "pull_update") {
+        counts.pullUpdate += 1;
+      } else if (op.type === "pull_delete") {
+        counts.pullDelete += 1;
+      } else if (op.type === "push_new") {
+        counts.pushNew += 1;
+      } else if (op.type === "push_update") {
+        counts.pushUpdate += 1;
+      } else if (op.type === "push_delete") {
+        counts.pushDelete += 1;
+      } else if (op.type === "rename_local") {
+        counts.renameLocal += 1;
+      } else if (op.type === "rename_remote") {
+        counts.renameRemote += 1;
+      }
+    }
+
+    return {
+      localFileCount: Object.keys(local).length,
+      remoteFileCount: Object.keys(remote).length,
+      baselineFileCount: Object.keys(baseline?.entries ?? {}).length,
+      conflictCount: conflictRecords.length,
+      counts,
+    };
+  }
+
+  private buildApprovalRequirement(
+    config: SyncConfig,
+    baseline: SyncBaseline | null,
+    summary: SyncPlanSummary,
+    finalOps: Array<Exclude<SyncOp, { type: "conflict" }>>
+  ): SyncApprovalRequirement {
+    const pullDeleteCount = summary.counts.pullDelete;
+    const denominator = Math.max(summary.baselineFileCount, summary.localFileCount, 1);
+    const deleteRatio = denominator > 0 ? pullDeleteCount / denominator : 0;
+    const remoteLooksWiped =
+      summary.remoteFileCount === 0 &&
+      summary.localFileCount >= DefaultSyncEngine.MASS_DELETE_MIN_FILES &&
+      summary.baselineFileCount >= DefaultSyncEngine.MASS_DELETE_MIN_FILES;
+    const deleteSetIsLarge =
+      pullDeleteCount >= DefaultSyncEngine.MASS_DELETE_MIN_FILES &&
+      deleteRatio >= DefaultSyncEngine.MASS_DELETE_RATIO_THRESHOLD;
+    const required = remoteLooksWiped || deleteSetIsLarge;
+
+    if (!required) {
+      return {
+        required: false,
+        key: null,
+        reason: null,
+        pullDeleteCount,
+        deleteRatio,
+        thresholdRatio: DefaultSyncEngine.MASS_DELETE_RATIO_THRESHOLD,
+      };
+    }
+
+    const reason = remoteLooksWiped
+      ? "Remote repository appears to have lost most or all tracked files. Approval is required before deleting local files."
+      : `This sync would delete ${pullDeleteCount} local file(s), which exceeds the safety threshold.`;
+    const paths = finalOps
+      .filter((op): op is { type: "pull_delete"; path: string } => op.type === "pull_delete")
+      .map((op) => op.path)
+      .sort()
+      .join("|");
+    const key = `approve-${this.hashString(
+      JSON.stringify({
+        owner: config.owner,
+        repo: config.repo,
+        branch: config.branch,
+        rootPath: config.rootPath,
+        repoScopeMode: config.repoScopeMode,
+        repoSubfolder: config.repoSubfolder,
+        baselineCommit: baseline?.commitSha ?? "",
+        pullDeleteCount,
+        paths,
+      })
+    )}`;
+
+    return {
+      required: true,
+      key,
+      reason,
+      pullDeleteCount,
+      deleteRatio,
+      thresholdRatio: DefaultSyncEngine.MASS_DELETE_RATIO_THRESHOLD,
+    };
+  }
+
+  private buildHealthState(
+    config: SyncConfig,
+    preview: SyncPreview,
+    action: SyncHealthState["lastAction"],
+    result: SyncHealthState["lastResult"],
+    message: string
+  ): SyncHealthState {
+    return {
+      updatedAt: new Date().toISOString(),
+      lastAction: action,
+      lastResult: result,
+      lastMessage: message,
+      owner: config.owner,
+      repo: config.repo,
+      branch: config.branch,
+      rootPath: config.rootPath,
+      repoScopeMode: config.repoScopeMode,
+      repoSubfolder: config.repoSubfolder,
+      baselineEntryCount: preview.summary.baselineFileCount,
+      previewApprovalRequired: preview.approval.required,
+      previewApprovalKey: preview.approval.key,
+      authStatus: config.authStatus ?? "unknown",
+      diagnostics: preview.diagnostics,
+      rateLimit: this.gitClient.getLastRateLimitSnapshot?.() ?? null,
+    };
+  }
+
+  private async persistHealth(health: SyncHealthState): Promise<void> {
+    await this.stateStore.saveHealth?.(health);
+  }
+
   private async executeOps(
-    ops: SyncOp[],
+    ops: Array<Exclude<SyncOp, { type: "conflict" }>>,
     conflicts: SyncOp[],
     config: SyncConfig,
     _local: LocalIndex,
@@ -314,65 +670,6 @@ export class DefaultSyncEngine implements SyncEngine {
     await this.app.vault.createBinary(targetPath, toArrayBuffer(buffer));
   }
 
-  private async renameRemoteFile(
-    fromPath: string,
-    toPath: string,
-    remote: RemoteIndex,
-    config: SyncConfig
-  ): Promise<void> {
-    await this.pushLocalFile(toPath, remote, config);
-    const remoteEntry = remote[fromPath];
-    if (remoteEntry?.sha) {
-      await this.gitClient.deleteFile(
-        this.toRemotePath(fromPath, this.getRepoSubfolder(config)),
-        `sync: delete ${fromPath}`,
-        remoteEntry.sha,
-        config.branch
-      );
-    }
-  }
-
-  private async deleteRemoteFile(
-    path: string,
-    remote: RemoteIndex,
-    config: SyncConfig
-  ): Promise<void> {
-    const remoteEntry = remote[path];
-    if (!remoteEntry?.sha) {
-      return;
-    }
-
-    await this.gitClient.deleteFile(
-      this.toRemotePath(path, this.getRepoSubfolder(config)),
-      `sync: delete ${path}`,
-      remoteEntry.sha,
-      config.branch
-    );
-  }
-
-  private async pushLocalFile(
-    path: string,
-    remote: RemoteIndex,
-    config: SyncConfig
-  ): Promise<void> {
-    const normalized = normalizePath(path);
-    const abstractFile = this.app.vault.getAbstractFileByPath(normalized);
-    if (!abstractFile || !(abstractFile instanceof TFile)) {
-      return;
-    }
-
-    const data = await this.app.vault.readBinary(abstractFile);
-    const contentBase64 = Buffer.from(data).toString("base64");
-    const remoteEntry = remote[path];
-    await this.gitClient.putFile(
-      this.toRemotePath(normalized, this.getRepoSubfolder(config)),
-      contentBase64,
-      `sync: update ${path}`,
-      remoteEntry?.sha,
-      config.branch
-    );
-  }
-
   private async batchPush(
     updates: Set<string>,
     deletes: Set<string>,
@@ -388,9 +685,10 @@ export class DefaultSyncEngine implements SyncEngine {
       const normalized = normalizePath(path);
       const abstractFile = this.app.vault.getAbstractFileByPath(normalized);
       if (!abstractFile || !(abstractFile instanceof TFile)) {
-        console.warn("batchPush: File not found for an update operation.");
+        runtimeLog.warn(`batchPush: file not found for update ${normalized}.`);
         continue;
       }
+
       try {
         const data = await this.app.vault.readBinary(abstractFile);
         const contentBase64 = Buffer.from(data).toString("base64");
@@ -403,7 +701,7 @@ export class DefaultSyncEngine implements SyncEngine {
         });
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
-        console.error(`batchPush: Failed to process an update operation: ${message}`);
+        runtimeLog.error(`batchPush: failed to process update ${normalized}: ${message}`);
         throw new Error(`Failed to process an update operation: ${message}`);
       }
     }
@@ -422,7 +720,7 @@ export class DefaultSyncEngine implements SyncEngine {
     }
 
     const treeSha = await this.gitClient.createTree({
-      baseTreeSha,
+      ...(baseTreeSha ? { baseTreeSha } : {}),
       entries,
     });
     const commitMessage = `sync: batch ${updates.size} updates, ${deletes.size} deletes`;
@@ -481,38 +779,21 @@ export class DefaultSyncEngine implements SyncEngine {
           : "conflict-remote";
       const conflictPath = this.nextConflictPath(conflict.path, tag);
 
-      if (reason === "modify-modify") {
+      if (reason === "modify-modify" || reason === "delete-modify-local") {
         await this.pullRemoteCopy(conflict.path, conflictPath, config);
-        await this.log(
-          "warn",
-          `Conflict keepBoth: remote copy saved as ${conflictPath}`
-        );
-        continue;
-      }
-
-      if (reason === "delete-modify-local") {
-        await this.pullRemoteCopy(conflict.path, conflictPath, config);
-        await this.log(
-          "warn",
-          `Conflict keepBoth: remote copy saved as ${conflictPath}`
-        );
+        await this.log("warn", `Conflict keepBoth: remote copy saved as ${conflictPath}`);
         continue;
       }
 
       if (reason === "delete-modify-remote") {
         await this.copyLocalFile(conflict.path, conflictPath);
-        await this.log(
-          "warn",
-          `Conflict keepBoth: local copy saved as ${conflictPath}`
-        );
+        await this.log("warn", `Conflict keepBoth: local copy saved as ${conflictPath}`);
+        continue;
       }
 
       if (reason === "local-missing-remote") {
         await this.pullRemoteFile(conflict.path, config);
-        await this.log(
-          "warn",
-          `Conflict keepBoth: remote restored ${conflict.path}`
-        );
+        await this.log("warn", `Conflict keepBoth: remote restored ${conflict.path}`);
       }
     }
   }
@@ -545,27 +826,182 @@ export class DefaultSyncEngine implements SyncEngine {
   private buildBaseline(
     local: LocalIndex,
     remote: RemoteIndex,
-    commitSha?: string
+    commitSha?: string,
+    placeholderDirectories: string[] = []
   ): SyncBaseline {
     const entries: SyncBaseline["entries"] = {};
-    const paths = new Set<string>([
-      ...Object.keys(local),
-      ...Object.keys(remote),
-    ]);
+    const paths = new Set<string>([...Object.keys(local), ...Object.keys(remote)]);
 
     for (const path of paths) {
       const localEntry = local[path];
       const remoteEntry = remote[path];
-      entries[path] = {
+      const entry = {
         path,
-        hash: localEntry?.hash,
-        mtime: localEntry?.mtime,
-        sha: remoteEntry?.sha,
-        lastCommitTime: remoteEntry?.lastCommitTime,
+        ...(localEntry?.hash ? { hash: localEntry.hash } : {}),
+        ...(localEntry?.mtime !== undefined ? { mtime: localEntry.mtime } : {}),
+        ...(localEntry?.size !== undefined
+          ? { size: localEntry.size }
+          : remoteEntry?.size !== undefined
+            ? { size: remoteEntry.size }
+            : {}),
+        ...(remoteEntry?.sha ? { sha: remoteEntry.sha } : {}),
+        ...(remoteEntry?.lastCommitTime !== undefined
+          ? { lastCommitTime: remoteEntry.lastCommitTime }
+          : {}),
       };
+      entries[path] = entry;
     }
 
-    return { entries, commitSha };
+    return {
+      entries,
+      ...(commitSha ? { commitSha } : {}),
+      ...(placeholderDirectories.length > 0
+        ? { placeholderDirectories: [...placeholderDirectories].sort() }
+        : {}),
+    };
+  }
+
+  private filterRemoteIndex(remote: RemoteIndex, config: SyncConfig): RemoteIndex {
+    const filtered: RemoteIndex = {};
+
+    for (const [path, entry] of Object.entries(remote)) {
+      if (hasHiddenPathSegment(path) || isIgnoredPath(path, config.ignorePatterns)) {
+        continue;
+      }
+      filtered[path] = entry;
+    }
+
+    return filtered;
+  }
+
+  private async cleanupLocalSyncArtifacts(
+    config: SyncConfig,
+    remotePlaceholderDirectories: string[]
+  ): Promise<void> {
+    const rootPath = this.getLocalRootPath(config.rootPath);
+    const preservedDirectories = new Set(
+      remotePlaceholderDirectories.filter((directory) =>
+        rootPath ? directory === rootPath || directory.startsWith(`${rootPath}/`) : true
+      )
+    );
+    await this.ensurePlaceholderDirectories(preservedDirectories);
+    const directories = await this.collectLocalDirectories(rootPath, config.ignorePatterns);
+    const cleanupTargets = rootPath ? [...directories, rootPath] : directories;
+
+    for (const directory of cleanupTargets) {
+      await this.removeOrphanedGitkeep(directory, config.ignorePatterns, preservedDirectories);
+      await this.pruneEmptyDirectory(directory, rootPath, preservedDirectories);
+    }
+  }
+
+  private async ensurePlaceholderDirectories(directories: Set<string>): Promise<void> {
+    for (const directory of Array.from(directories).sort((left, right) => left.length - right.length)) {
+      if (!directory.trim() || this.app.vault.getAbstractFileByPath(directory)) {
+        continue;
+      }
+      await this.app.vault.createFolder(directory);
+      await this.log("info", `Restored empty folder ${directory} from remote placeholder state.`);
+    }
+  }
+
+  private async collectLocalDirectories(
+    rootPath: string,
+    ignorePatterns: string[]
+  ): Promise<string[]> {
+    const directories: string[] = [];
+    await this.walkLocalDirectories(rootPath, ignorePatterns, directories);
+    directories.sort((left, right) => right.split("/").length - left.split("/").length);
+    return directories;
+  }
+
+  private async walkLocalDirectories(
+    directory: string,
+    ignorePatterns: string[],
+    directories: string[]
+  ): Promise<void> {
+    const listing = await this.app.vault.adapter.list(directory);
+
+    for (const folder of listing.folders) {
+      const normalized = normalizePath(folder);
+      if (hasHiddenPathSegment(normalized) || isIgnoredPath(normalized, ignorePatterns)) {
+        continue;
+      }
+
+      directories.push(normalized);
+      await this.walkLocalDirectories(normalized, ignorePatterns, directories);
+    }
+  }
+
+  private async removeOrphanedGitkeep(
+    directory: string,
+    ignorePatterns: string[],
+    preservedDirectories: Set<string>
+  ): Promise<void> {
+    const normalizedDirectory = normalizePath(directory);
+    if (
+      hasHiddenPathSegment(normalizedDirectory) ||
+      isIgnoredPath(normalizedDirectory, ignorePatterns)
+    ) {
+      return;
+    }
+
+    const gitkeepPath = `${normalizedDirectory}/.gitkeep`;
+    const listing = await this.app.vault.adapter.list(normalizedDirectory);
+    const hasGitkeep = listing.files.some((file) => normalizePath(file) === gitkeepPath);
+    if (!hasGitkeep) {
+      return;
+    }
+
+    const hasVisibleFiles = listing.files.some((file) => {
+      const normalized = normalizePath(file);
+      return (
+        normalized !== gitkeepPath &&
+        !hasHiddenPathSegment(normalized) &&
+        !isIgnoredPath(normalized, ignorePatterns)
+      );
+    });
+    const hasVisibleFolders = listing.folders.some((folder) => {
+      const normalized = normalizePath(folder);
+      return !hasHiddenPathSegment(normalized) && !isIgnoredPath(normalized, ignorePatterns);
+    });
+
+    if (hasVisibleFiles || hasVisibleFolders) {
+      return;
+    }
+
+    await this.app.vault.adapter.remove(gitkeepPath);
+    await this.log("info", `Removed orphaned placeholder ${gitkeepPath}.`);
+
+    if (preservedDirectories.has(normalizedDirectory)) {
+      await this.log("info", `Kept empty folder ${normalizedDirectory} because the remote placeholder still exists.`);
+    }
+  }
+
+  private async pruneEmptyDirectory(
+    directory: string,
+    rootPath: string,
+    preservedDirectories: Set<string>
+  ): Promise<void> {
+    const normalizedDirectory = normalizePath(directory);
+    if (!normalizedDirectory || normalizedDirectory === rootPath) {
+      return;
+    }
+    if (preservedDirectories.has(normalizedDirectory)) {
+      return;
+    }
+
+    const listing = await this.app.vault.adapter.list(normalizedDirectory);
+    if (listing.files.length > 0 || listing.folders.length > 0) {
+      return;
+    }
+
+    await this.app.vault.adapter.rmdir(normalizedDirectory, false);
+    await this.log("info", `Removed empty folder ${normalizedDirectory}.`);
+  }
+
+  private getLocalRootPath(rootPath: string): string {
+    const trimmed = rootPath.trim();
+    return trimmed.length > 0 ? normalizePath(trimmed) : "";
   }
 
   private getRepoSubfolder(config: SyncConfig): string {
@@ -581,114 +1017,6 @@ export class DefaultSyncEngine implements SyncEngine {
     return repoSubfolder ? `${repoSubfolder}/${normalizedLocal}` : normalizedLocal;
   }
 
-  private buildIncrementalBaseline(
-    local: LocalIndex,
-    remote: RemoteIndex,
-    finalOps: SyncOp[],
-    conflicts: SyncOp[],
-    commitSha?: string
-  ): SyncBaseline {
-    // Start with the current state before operations
-    const entries: SyncBaseline["entries"] = {};
-
-    // Initialize baseline from current local and remote indices
-    const allPaths = new Set<string>([
-      ...Object.keys(local),
-      ...Object.keys(remote),
-    ]);
-
-    for (const path of allPaths) {
-      const localEntry = local[path];
-      const remoteEntry = remote[path];
-      entries[path] = {
-        path,
-        hash: localEntry?.hash,
-        mtime: localEntry?.mtime,
-        sha: remoteEntry?.sha,
-        lastCommitTime: remoteEntry?.lastCommitTime,
-      };
-    }
-
-    // Apply operations to baseline
-    for (const op of finalOps) {
-      if (op.type === "pull_new" || op.type === "pull_update") {
-        // File was pulled from remote, sync local and remote state
-        const remoteEntry = remote[op.path];
-        if (remoteEntry) {
-          // We don't know the new local hash/mtime without rescanning,
-          // but we know it should match remote SHA
-          entries[op.path] = {
-            path: op.path,
-            sha: remoteEntry.sha,
-            lastCommitTime: remoteEntry.lastCommitTime,
-            // Leave hash and mtime undefined - will be computed on next sync
-          };
-        }
-      } else if (op.type === "push_new" || op.type === "push_update") {
-        // File was pushed to remote, sync local and remote state
-        const localEntry = local[op.path];
-        if (localEntry) {
-          entries[op.path] = {
-            path: op.path,
-            hash: localEntry.hash,
-            mtime: localEntry.mtime,
-            // SHA will be updated after push, leave undefined for now
-          };
-        }
-      } else if (op.type === "pull_delete") {
-        // File was deleted locally
-        delete entries[op.path];
-      } else if (op.type === "push_delete") {
-        // File was deleted remotely
-        delete entries[op.path];
-      } else if (op.type === "rename_local") {
-        // Local file was renamed to match remote
-        const remoteEntry = remote[op.to];
-        delete entries[op.from];
-        if (remoteEntry) {
-          entries[op.to] = {
-            path: op.to,
-            sha: remoteEntry.sha,
-            lastCommitTime: remoteEntry.lastCommitTime,
-          };
-        }
-      } else if (op.type === "rename_remote") {
-        // Remote file will be renamed to match local
-        const localEntry = local[op.to];
-        delete entries[op.from];
-        if (localEntry) {
-          entries[op.to] = {
-            path: op.to,
-            hash: localEntry.hash,
-            mtime: localEntry.mtime,
-          };
-        }
-      }
-    }
-
-    // Handle keepBoth conflicts - both versions exist
-    if (conflicts.length > 0) {
-      for (const conflict of conflicts) {
-        if (conflict.type === "conflict") {
-          const localEntry = local[conflict.path];
-          const remoteEntry = remote[conflict.path];
-          if (localEntry && remoteEntry) {
-            // Both exist, sync the state
-            entries[conflict.path] = {
-              path: conflict.path,
-              hash: localEntry.hash,
-              mtime: localEntry.mtime,
-              sha: remoteEntry.sha,
-              lastCommitTime: remoteEntry.lastCommitTime,
-            };
-          }
-        }
-      }
-    }
-
-    return { entries, commitSha };
-  }
-
   private async log(level: "info" | "warn" | "error", message: string): Promise<void> {
     await this.stateStore.appendLog({
       timestamp: new Date().toISOString(),
@@ -698,13 +1026,19 @@ export class DefaultSyncEngine implements SyncEngine {
   }
 
   private reportProgress(config: SyncConfig, progress: SyncProgress): void {
-    if (config.onProgress) {
-      // Calculate percentage if current and total are provided
-      if (progress.current !== undefined && progress.total !== undefined && progress.total > 0) {
-        progress.percentage = Math.round((progress.current / progress.total) * 100);
-      }
-      config.onProgress(progress);
+    if (!config.onProgress) {
+      return;
     }
+
+    const nextProgress = { ...progress };
+    if (
+      nextProgress.current !== undefined &&
+      nextProgress.total !== undefined &&
+      nextProgress.total > 0
+    ) {
+      nextProgress.percentage = Math.round((nextProgress.current / nextProgress.total) * 100);
+    }
+    config.onProgress(nextProgress);
   }
 
   private async runOp(
@@ -720,5 +1054,27 @@ export class DefaultSyncEngine implements SyncEngine {
       failures.push(`${label}: ${message}`);
       await this.log("error", `Op failed: ${label}: ${message}`);
     }
+  }
+
+  private emptyCounts(): SyncOpCounts {
+    return {
+      pullNew: 0,
+      pullUpdate: 0,
+      pullDelete: 0,
+      pushNew: 0,
+      pushUpdate: 0,
+      pushDelete: 0,
+      renameLocal: 0,
+      renameRemote: 0,
+    };
+  }
+
+  private hashString(value: string): string {
+    let hash = 2166136261;
+    for (let i = 0; i < value.length; i += 1) {
+      hash ^= value.charCodeAt(i);
+      hash = Math.imul(hash, 16777619);
+    }
+    return (hash >>> 0).toString(36);
   }
 }

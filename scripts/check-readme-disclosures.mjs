@@ -1,3 +1,5 @@
+// @ts-check
+
 import { readFile } from "fs/promises";
 
 const readme = (await readFile("README.md", "utf8")).toLowerCase();

@@ -1,6 +1,8 @@
-import { normalizePath, TFile, type App } from "obsidian";
+import { normalizePath, type App, type TFile } from "obsidian";
 import type { LocalIndex, SyncBaseline } from "../types/sync-types";
 import type { LocalIndexer } from "../types/interfaces";
+import { isIgnoredPath } from "../utils/path-filter";
+import { runtimeLog } from "../utils/runtime-log";
 
 export class LocalVaultIndexer implements LocalIndexer {
   private app: App;
@@ -30,7 +32,7 @@ export class LocalVaultIndexer implements LocalIndexer {
         continue;
       }
 
-      if (this.isIgnored(file.path, ignorePatterns)) {
+      if (isIgnoredPath(file.path, ignorePatterns)) {
         continue;
       }
 
@@ -50,7 +52,7 @@ export class LocalVaultIndexer implements LocalIndexer {
     }
 
     if (skippedFiles.length > 0) {
-      console.warn(
+      runtimeLog.warn(
         `Skipped ${skippedFiles.length} large file(s) exceeding ${(this.maxFileSizeBytes / 1024 / 1024).toFixed(0)}MB.`
       );
     }
@@ -90,49 +92,5 @@ export class LocalVaultIndexer implements LocalIndexer {
     }
 
     return normalized.startsWith(`${rootPath}/`);
-  }
-
-  private isIgnored(path: string, ignorePatterns: string[]): boolean {
-    if (ignorePatterns.length === 0) {
-      return false;
-    }
-
-    const normalized = normalizePath(path);
-
-    // Use internal glob matching for robust ignore pattern support
-    for (const pattern of ignorePatterns) {
-      const trimmed = pattern.trim();
-      if (!trimmed) {
-        continue;
-      }
-
-      // Handle directory patterns (ending with /)
-      if (trimmed.endsWith("/")) {
-        const dirPattern = normalizePath(trimmed);
-        if (normalized.startsWith(dirPattern) || normalized === dirPattern.slice(0, -1)) {
-          return true;
-        }
-      } else {
-        if (this.matchesGlob(normalized, normalizePath(trimmed))) {
-          return true;
-        }
-      }
-    }
-
-    return false;
-  }
-
-  private matchesGlob(path: string, pattern: string): boolean {
-    const regex = this.globToRegExp(pattern);
-    return regex.test(path);
-  }
-
-  private globToRegExp(pattern: string): RegExp {
-    const escaped = pattern.replace(/[.+^${}()|[\]\\]/g, "\\$&");
-    const withGlobstar = escaped.replace(/\*\*/g, "__GLOBSTAR__");
-    const withStar = withGlobstar.replace(/\*/g, "[^/]*");
-    const withQuestion = withStar.replace(/\?/g, "[^/]");
-    const source = withQuestion.replace(/__GLOBSTAR__/g, ".*");
-    return new RegExp(`^${source}$`);
   }
 }

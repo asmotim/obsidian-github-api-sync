@@ -4,8 +4,16 @@
     "module": "ESNext",
     "moduleResolution": "Bundler",
     "strict": true,
+    "exactOptionalPropertyTypes": true,
     "esModuleInterop": true,
+    "forceConsistentCasingInFileNames": true,
+    "isolatedModules": true,
+    "noFallthroughCasesInSwitch": true,
+    "noImplicitOverride": true,
+    "noUncheckedIndexedAccess": true,
     "resolveJsonModule": true,
+    "useUnknownInCatchVariables": true,
+    "verbatimModuleSyntax": true,
     "types": ["vitest/globals"]
   },
   "include": ["src", "tests"]

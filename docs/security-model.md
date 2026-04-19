@@ -12,12 +12,12 @@
 
 ### Local side
 
-The plugin runs inside Obsidian and can read the vault paths it is pointed at. Local plugin data and settings are therefore sensitive.
+The plugin runs inside Obsidian and can read the vault paths it is pointed at. Local plugin data, settings, and stored GitHub App auth state are therefore sensitive.
 
 ### Remote side
 
 The configured GitHub repository and branch act as the remote sync target. Data sent there is outside the local-only trust boundary.
-When repository scope is set to a subfolder, only that configured remote subtree is used for plugin sync data.
+When Remote sync root is set to a subfolder, only that configured remote subtree is used for plugin sync data. When Local sync root is set, only that configured vault subtree is scanned locally before sync planning.
 
 ### CI/CD side
 
@@ -25,24 +25,31 @@ GitHub Actions may build and package the plugin, but ordinary CI should not need
 
 ## Token policy
 
-Preferred:
+GitHub App baseline:
 
-- fine-grained PAT
-- repository-scoped only
-- contents read/write
-- metadata read
-
-Fallback:
-
-- classic PAT with `repo` for private repositories or `public_repo` for public repositories
+- device flow enabled
+- expiring user access tokens enabled
+- repository contents: read/write
+- repository metadata: read
 
 Operational rules:
 
 - one token per user or device where practical
 - rotate on exposure or device loss
-- default to session-only token handling (do not persist token unless explicitly enabled by the user)
+- GitHub App auth persists expiring access and refresh tokens locally so silent refresh can work across app restarts
+- the plugin may ship public GitHub App metadata such as the shared app client ID and install URL
 - do not print tokens in logs
+- redact token-shaped values before persisting sync logs or writing runtime warnings/errors
 - do not embed tokens in fixtures, screenshots, or issue reports
+- do not commit GitHub App client secrets or private keys to this public repository
+- clear stored GitHub App auth state on disconnect
+
+## Sync safety rules
+
+- large or suspicious local delete sets must surface as a stored preview that requires explicit approval before execution
+- remote comparison fallbacks must prefer correctness over a cheaper but potentially incomplete remote picture
+- sync preview and health records may contain path metadata and should be treated as sensitive local state
+- baseline repair is an explicit user action; ordinary sync should not silently discard the last known baseline when the remote picture looks suspicious
 
 ## Configuration folder policy
 

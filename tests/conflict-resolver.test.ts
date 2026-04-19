@@ -12,7 +12,7 @@ const conflict = (reason: Extract<SyncOp, { type: "conflict" }>["reason"]): Sync
 
 describe("DefaultConflictResolver", () => {
   it("resolves preferLocal", async () => {
-    const { resolvedOps, conflictRecords } = await resolver.resolve(
+    const { resolvedOps, conflictRecords } = resolver.resolve(
       [
         conflict("modify-modify"),
         conflict("delete-modify-local"),
@@ -29,11 +29,11 @@ describe("DefaultConflictResolver", () => {
       { type: "push_delete", path: "note.md" },
     ]);
     expect(conflictRecords).toHaveLength(4);
-    expect(conflictRecords[0].reason).toBe("modify-modify");
+    expect(conflictRecords[0]?.reason).toBe("modify-modify");
   });
 
   it("resolves preferRemote", async () => {
-    const { resolvedOps } = await resolver.resolve(
+    const { resolvedOps } = resolver.resolve(
       [
         conflict("modify-modify"),
         conflict("delete-modify-local"),
@@ -52,7 +52,7 @@ describe("DefaultConflictResolver", () => {
   });
 
   it("keeps conflicts when manual", async () => {
-    const { resolvedOps, conflictRecords } = await resolver.resolve(
+    const { resolvedOps, conflictRecords } = resolver.resolve(
       [conflict("modify-modify")],
       "manual"
     );

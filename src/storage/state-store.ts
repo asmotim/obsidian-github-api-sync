@@ -1,15 +1,33 @@
-import type { ConflictRecord, SyncBaseline, SyncLogEntry } from "../types/sync-types";
+import type {
+  ConflictRecord,
+  SyncBaseline,
+  SyncHealthState,
+  SyncLogEntry,
+  SyncPreview,
+} from "../types/sync-types";
 import type { StateStore } from "../types/interfaces";
 import type { Plugin } from "obsidian";
 import type { PluginSettings } from "../types/plugin-settings";
+import { extractPluginSettings } from "../types/plugin-settings";
+import type { GitHubAppAuthState } from "../types/auth-types";
+import { extractGitHubAppAuthState } from "./auth-state-store";
+import { redactSensitiveText } from "../utils/redaction";
 
 type StoredState = {
   settings?: PluginSettings;
+  auth: GitHubAppAuthState | null;
   baseline: SyncBaseline | null;
   conflicts: ConflictRecord[];
   logs: SyncLogEntry[];
+  preview: SyncPreview | null;
+  health: SyncHealthState | null;
 };
 
+/**
+ * Persists plugin runtime state without leaking auth secrets into top-level
+ * settings fields. Log entries are redacted on write because logs may be shared
+ * in bug reports.
+ */
 export class PluginStateStore implements StateStore {
   private plugin: Plugin;
 
@@ -41,7 +59,10 @@ export class PluginStateStore implements StateStore {
 
   async appendLog(entry: SyncLogEntry): Promise<void> {
     const state = await this.loadFullState();
-    state.logs.push(entry);
+    state.logs.push({
+      ...entry,
+      message: redactSensitiveText(entry.message),
+    });
     if (state.logs.length > 500) {
       state.logs = state.logs.slice(-500);
     }
@@ -53,59 +74,70 @@ export class PluginStateStore implements StateStore {
     return state.logs;
   }
 
-  private async loadState(): Promise<Omit<StoredState, "settings">> {
-    const raw = await this.plugin.loadData();
+  async savePreview(preview: SyncPreview | null): Promise<void> {
+    const state = await this.loadFullState();
+    state.preview = preview;
+    await this.plugin.saveData(this.mergeWithSettings(state));
+  }
+
+  async loadPreview(): Promise<SyncPreview | null> {
+    const state = await this.loadState();
+    return state.preview;
+  }
+
+  async saveHealth(health: SyncHealthState | null): Promise<void> {
+    const state = await this.loadFullState();
+    state.health = health;
+    await this.plugin.saveData(this.mergeWithSettings(state));
+  }
+
+  async loadHealth(): Promise<SyncHealthState | null> {
+    const state = await this.loadState();
+    return state.health;
+  }
+
+  private async loadState(): Promise<
+    Pick<StoredState, "baseline" | "conflicts" | "logs" | "preview" | "health">
+  > {
+    const raw: unknown = await this.plugin.loadData();
     const state = (raw ?? {}) as Partial<StoredState>;
     return {
       baseline: state.baseline ?? null,
       conflicts: state.conflicts ?? [],
       logs: state.logs ?? [],
+      preview: state.preview ?? null,
+      health: state.health ?? null,
     };
   }
 
   private async loadFullState(): Promise<StoredState> {
-    const raw = await this.plugin.loadData();
+    const raw: unknown = await this.plugin.loadData();
     const state = (raw ?? {}) as Partial<StoredState>;
+    const settings = this.extractSettings(raw);
     // Extract settings fields from top level (not nested under 'settings' key)
     return {
-      settings: this.extractSettings(raw),
+      ...(settings ? { settings } : {}),
+      auth: extractGitHubAppAuthState(raw),
       baseline: state.baseline ?? null,
       conflicts: state.conflicts ?? [],
       logs: state.logs ?? [],
+      preview: state.preview ?? null,
+      health: state.health ?? null,
     };
   }
 
-  private extractSettings(data: unknown): PluginSettings | undefined {
-    if (!data || typeof data !== "object") {
-      return undefined;
-    }
-    const obj = data as Partial<PluginSettings>;
-    // Check if this looks like settings (has at least one known field)
-    const hasSettings = "token" in obj || "owner" in obj || "repo" in obj;
-    if (!hasSettings) {
-      return undefined;
-    }
-    return {
-      token: obj.token ?? "",
-      owner: obj.owner ?? "",
-      repo: obj.repo ?? "",
-      branch: obj.branch ?? "main",
-      rootPath: obj.rootPath ?? "",
-      persistToken: obj.persistToken ?? false,
-      repoScopeMode: obj.repoScopeMode ?? "fullRepo",
-      repoSubfolder: obj.repoSubfolder ?? "vault",
-      ignorePatterns: obj.ignorePatterns ?? [".git/"],
-      conflictPolicy: obj.conflictPolicy ?? "keepBoth",
-      syncIntervalMinutes: obj.syncIntervalMinutes ?? null,
-      maxFileSizeMB: obj.maxFileSizeMB ?? 50,
-    };
+  private extractSettings(data: unknown) {
+    return extractPluginSettings(data);
   }
 
   private mergeWithSettings(state: StoredState): Record<string, unknown> {
     const result: Record<string, unknown> = {
+      auth: state.auth,
       baseline: state.baseline,
       conflicts: state.conflicts,
       logs: state.logs,
+      preview: state.preview,
+      health: state.health,
     };
     // Spread settings back to top level
     if (state.settings) {
