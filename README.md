@@ -1,6 +1,6 @@
-# GitHub API Sync
+# Obsidian Vault Sync with GitHub
 
-A bidirectional Obsidian sync plugin that uses the GitHub API instead of a local Git client.
+An Obsidian plugin for bidirectional vault sync with GitHub, without requiring a local Git client.
 
 ## Status
 
@@ -152,13 +152,20 @@ Build artifacts land in `dist/`.
 
 ## Test without catalog submission
 
-Yes — you can test this fork locally without submitting to the Obsidian community catalog:
+Yes — you can test this plugin locally without submitting to the Obsidian community catalog:
 
 1. run `npm ci` and `npm run build`
 2. copy `dist/main.js`, `dist/manifest.json`, and optional `dist/styles.css` into a local Obsidian plugin folder
 3. enable the plugin in Obsidian (Settings → Community Plugins)
 
-Use the folder name `obsidian-github-api-sync` for this independent plugin line. If you previously tested the upstream plugin under `github-api-sync`, remove or disable that older local install first so both identities do not compete in the same vault.
+Use the folder name `obsidian-vault-sync-with-github` for this independent plugin line. If you previously tested either the upstream plugin under `github-api-sync` or an earlier local build of this plugin line under `obsidian-github-api-sync`, remove or disable that older local install first so the plugin identities do not compete in the same vault.
+
+If you want to keep existing plugin settings while moving between plugin IDs:
+
+1. close or reload Obsidian so the old plugin is not actively writing state
+2. copy the old `data.json` from `.obsidian/plugins/github-api-sync/` or `.obsidian/plugins/obsidian-github-api-sync/`
+3. place that file at `.obsidian/plugins/obsidian-vault-sync-with-github/data.json`
+4. start Obsidian again and verify the repository, auth state, and sync health
 
 ## Release process
 

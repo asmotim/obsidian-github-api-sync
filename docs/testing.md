@@ -41,7 +41,7 @@ Use integration-style tests for:
 
 ### 3. Manual smoke tests for release candidates
 
-Before publishing a release from this fork, manually smoke-test:
+Before publishing a release from this repository, manually smoke-test:
 
 - macOS desktop
 - Windows desktop
@@ -50,7 +50,8 @@ Before publishing a release from this fork, manually smoke-test:
 Release smoke should verify at minimum:
 
 - plugin enables successfully
-- plugin installs under the independent plugin ID and does not conflict with a leftover local install of the upstream `github-api-sync` plugin
+- plugin installs under the independent plugin ID `obsidian-vault-sync-with-github` and does not conflict with a leftover local install of the upstream `github-api-sync` plugin or an older local fork install under `obsidian-github-api-sync`
+- migrating `data.json` from `github-api-sync` or `obsidian-github-api-sync` into `obsidian-vault-sync-with-github` preserves usable settings and local auth state
 - settings save/load correctly
 - a sync run can complete against a test repository
 - GitHub App device-flow login can complete on at least one desktop path and one mobile path when that auth mode is enabled

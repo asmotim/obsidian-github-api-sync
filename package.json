@@ -1,5 +1,5 @@
 {
-  "name": "obsidian-github-api-sync",
+  "name": "obsidian-vault-sync-with-github",
   "version": "1.1.0",
   "type": "module",
   "scripts": {

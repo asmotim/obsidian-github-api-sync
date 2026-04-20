@@ -19,7 +19,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
-- plugin identity now ships as the independent `obsidian-github-api-sync` line instead of reusing the upstream manifest identity
+- the visible plugin name now ships as `Obsidian Vault Sync with GitHub`
+- plugin identity now ships as the independent `obsidian-vault-sync-with-github` line instead of reusing the upstream manifest identity
+- package metadata now aligns with the independent plugin slug and the README documents how to migrate `data.json` from older plugin IDs
 - repository policy now treats this project as an independent continuation that still credits and selectively backports to upstream where appropriate
 - package metadata version alignment policy tightened around `manifest.json` and `package.json`
 - release workflow hardened to verify build, version, and release assets before creating a draft release

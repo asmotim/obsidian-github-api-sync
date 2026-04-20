@@ -1,9 +1,9 @@
 {
-  "id": "obsidian-github-api-sync",
-  "name": "Obsidian GitHub API Sync",
+  "id": "obsidian-vault-sync-with-github",
+  "name": "Obsidian Vault Sync with GitHub",
   "version": "1.1.0",
   "minAppVersion": "1.5.0",
-  "description": "Bidirectional vault sync for Obsidian via the GitHub API.",
+  "description": "Bidirectional vault sync for Obsidian with GitHub.",
   "author": "asmotim",
   "authorUrl": "https://github.com/asmotim",
   "isDesktopOnly": false
