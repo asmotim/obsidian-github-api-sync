@@ -1,6 +1,6 @@
 # ADR-0002: Keep fork identity unresolved until explicitly decided
 
-- Status: accepted
+- Status: superseded by ADR-0007
 - Date: 2026-04-19
 
 ## Context
@@ -22,3 +22,7 @@ Until a deliberate follow-up decision is made:
 - contributors avoid accidental ecosystem breakage
 - README must disclose the fork status clearly
 - the first independent release from this fork requires a deliberate identity/release decision
+
+## Superseded by
+
+- `0007-independent-plugin-identity-and-release-channel.md`

@@ -4,7 +4,15 @@ A bidirectional Obsidian sync plugin that uses the GitHub API instead of a local
 
 ## Status
 
-This repository is currently a governance and hardening fork of the upstream `FreezingGod/obsidian-github-api-sync` codebase. The code and manifest identity still track the upstream plugin for now. Until `docs/decisions/0002-fork-identity-and-release-policy.md` is deliberately resolved, this fork should be treated as a development fork rather than a separate public release channel.
+This repository is an independent continuation of the upstream `FreezingGod/obsidian-github-api-sync` project.
+It started as a fork, but it now ships under its own plugin identity and release channel. The current identity decision is recorded in [ADR-0007](docs/decisions/0007-independent-plugin-identity-and-release-channel.md).
+
+## Relationship To Upstream
+
+- this project started as a fork of `FreezingGod/obsidian-github-api-sync`
+- upstream provenance remains credited in this repository and its history
+- this repository now follows its own roadmap, release process, and maintainer decisions
+- focused fixes that are still broadly useful upstream should be proposed back as small, reviewable changes instead of as giant fork-sync PRs
 
 ## What the plugin does
 
@@ -150,9 +158,11 @@ Yes — you can test this fork locally without submitting to the Obsidian commun
 2. copy `dist/main.js`, `dist/manifest.json`, and optional `dist/styles.css` into a local Obsidian plugin folder
 3. enable the plugin in Obsidian (Settings → Community Plugins)
 
+Use the folder name `obsidian-github-api-sync` for this independent plugin line. If you previously tested the upstream plugin under `github-api-sync`, remove or disable that older local install first so both identities do not compete in the same vault.
+
 ## Release process
 
-This fork uses a draft-release workflow on SemVer tags. Release readiness requires version sync, passing CI, release assets, and manual smoke checks. See `docs/release.md` for the full checklist.
+This repository uses a draft-release workflow on SemVer tags. Release readiness requires version sync, passing CI, release assets, `versions.json`, and manual smoke checks. See `docs/release.md` for the full checklist.
 
 ## Governance docs
 

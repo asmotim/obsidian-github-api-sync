@@ -10,3 +10,4 @@ Current ADRs:
 - `0004-conflict-semantics.md`
 - `0005-github-app-device-flow-foundation.md`
 - `0006-sync-preview-and-remote-fetch-safety.md`
+- `0007-independent-plugin-identity-and-release-channel.md`

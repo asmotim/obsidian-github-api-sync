@@ -1,10 +1,10 @@
 {
-  "id": "github-api-sync",
-  "name": "GitHub API Sync",
-  "version": "1.0.5",
+  "id": "obsidian-github-api-sync",
+  "name": "Obsidian GitHub API Sync",
+  "version": "1.1.0",
   "minAppVersion": "1.5.0",
-  "description": "Bidirectional sync for journals via GitHub API.",
-  "author": "Nathan Ling",
-  "authorUrl": "",
+  "description": "Bidirectional vault sync for Obsidian via the GitHub API.",
+  "author": "asmotim",
+  "authorUrl": "https://github.com/asmotim",
   "isDesktopOnly": false
 }

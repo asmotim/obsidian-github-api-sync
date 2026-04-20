@@ -8,7 +8,8 @@ Thanks for contributing.
 - keep changes small and reviewable
 - preserve existing plugin behavior unless the change intentionally updates behavior and documents it
 - do not introduce real secrets, tokens, or private vault data into the repository, issues, screenshots, or tests
-- do not change plugin identity (`id`, `name`, authoring/release identity) casually; see ADR-0002 first
+- do not change plugin identity (`id`, `name`, authoring/release identity) casually; see ADR-0007 first
+- this repository is an independent continuation, not a mirror-sync fork; upstream PRs should be small and focused when they still apply cleanly there
 
 ## Before you open a PR
 

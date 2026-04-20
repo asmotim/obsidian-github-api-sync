@@ -50,6 +50,7 @@ Before publishing a release from this fork, manually smoke-test:
 Release smoke should verify at minimum:
 
 - plugin enables successfully
+- plugin installs under the independent plugin ID and does not conflict with a leftover local install of the upstream `github-api-sync` plugin
 - settings save/load correctly
 - a sync run can complete against a test repository
 - GitHub App device-flow login can complete on at least one desktop path and one mobile path when that auth mode is enabled

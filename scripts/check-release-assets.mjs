@@ -20,7 +20,7 @@ function parseArgs(argv) {
 }
 
 const args = parseArgs(process.argv.slice(2));
-const required = ["dist/main.js", "dist/manifest.json", "manifest.json"];
+const required = ["dist/main.js", "dist/manifest.json", "manifest.json", "versions.json"];
 if (existsSync("styles.css")) {
   required.push("dist/styles.css");
 }
